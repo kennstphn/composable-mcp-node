@@ -390,19 +390,6 @@ export class App {
     // MCP endpoint — per-request Directus fetch using the caller's Bearer token
     this.app.post('/mcp/:tool_collation', async (req, res) => {
       const { jsonrpc, id, method, params } = req.body || {};
-      const bearerToken = extractBearerToken(req);
-      if (!bearerToken && method !== 'initialize') {
-        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
-      }
-
-      const { tool_collation } = req.params;
-      let tools;
-      try {
-        tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, bearerToken, tool_collation);
-      } catch (err) {
-        return res.status(err.status || 500).json({ error: err.message });
-      }
-
 
       if (method === 'initialize') {
         return res.json({
@@ -434,6 +421,19 @@ export class App {
           id,
           result: {},
         });
+      }
+
+      const bearerToken = extractBearerToken(req);
+      if (!bearerToken && method !== 'initialize') {
+        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+      }
+
+      const { tool_collation } = req.params;
+      let tools;
+      try {
+        tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, bearerToken, tool_collation);
+      } catch (err) {
+        return res.status(err.status || 500).json({ error: err.message });
       }
 
       if (method === 'tools/list') {
