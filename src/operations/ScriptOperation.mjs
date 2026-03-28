@@ -1,4 +1,4 @@
-const vm = require('node:vm');
+import vm from 'node:vm';
 
 export class ScriptOperation {
   constructor(config) {
@@ -16,7 +16,7 @@ export class ScriptOperation {
     const data = {
       $last: context.$last,
       $env: context.$env,        // frozen
-      $vars: context.vars,       // mutable — this is your accumulator space
+      $vars: context.$vars,       // mutable — this is your accumulator space
     };
 
     // Add every slug as a direct property for easy access
