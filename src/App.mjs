@@ -212,7 +212,7 @@ function buildLandingPage(directusBaseUrl) {
       badge.textContent = info.label;
       badge.className = 'status-badge ' + info.cls;
       var initBtn = document.getElementById('init-btn');
-      if (state === 'complete') {
+      if (state === 'complete' || state === 'migration_needed') {
         initBtn.classList.add('hidden');
       } else {
         initBtn.classList.remove('hidden');
@@ -228,7 +228,20 @@ function buildLandingPage(directusBaseUrl) {
         var body = await res.json();
         if (!res.ok) { setResult('Error: ' + (body.error || res.status), 'error'); return; }
         updateBadge(body.state);
-        setResult('', '');
+        if (body.state === 'migration_needed') {
+          var lines = ['Migration is not supported. Please resolve the schema differences manually.'];
+          if (body.details) {
+            if (body.details.missingToolFields && body.details.missingToolFields.length) {
+              lines.push('Missing tools fields: ' + body.details.missingToolFields.join(', '));
+            }
+            if (body.details.missingOpsFields && body.details.missingOpsFields.length) {
+              lines.push('Missing operations fields: ' + body.details.missingOpsFields.join(', '));
+            }
+          }
+          setResult(lines.join('\n'), 'error');
+        } else {
+          setResult('', '');
+        }
       } catch (e) {
         setResult('Request failed: ' + e.message, 'error');
       }
@@ -300,8 +313,11 @@ export class App {
       }
 
       try {
-        const state = await checkInitializationState(this.DIRECTUS_BASE_URL, bearerToken);
-        return res.json({ state });
+        const result = await checkInitializationState(this.DIRECTUS_BASE_URL, bearerToken);
+        return res.json({
+          state: result.state,
+          ...(result.details ? { details: result.details } : {}),
+        });
       } catch (err) {
         if (err.status === 401 || err.status === 403) {
           return res.status(err.status).json({ error: 'Directus authorization failed', state: 'needed' });
@@ -324,6 +340,23 @@ export class App {
       const bearerToken = extractBearerToken(req);
       if (!bearerToken) {
         return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+      }
+
+      // Check current state first; block early if migration is needed
+      let currentState;
+      try {
+        currentState = await checkInitializationState(this.DIRECTUS_BASE_URL, bearerToken);
+      } catch (err) {
+        return res.status(err.status || 500).json({ ok: false, error: err.message });
+      }
+
+      if (currentState.state === 'migration_needed') {
+        return res.status(409).json({
+          ok: false,
+          error: 'Migration is not supported. Please resolve the schema differences manually.',
+          state: 'migration_needed',
+          details: currentState.details,
+        });
       }
 
       const results = {};

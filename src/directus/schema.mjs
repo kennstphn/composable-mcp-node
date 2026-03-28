@@ -284,8 +284,8 @@ export async function checkInitializationState(baseUrl, token) {
   const toolsExists = existingCollections.has('tools');
   const opsExists = existingCollections.has('operations');
 
-  if (!toolsExists && !opsExists) return 'needed';
-  if (!toolsExists || !opsExists) return 'in_progress';
+  if (!toolsExists && !opsExists) return { state: 'needed' };
+  if (!toolsExists || !opsExists) return { state: 'in_progress' };
 
   // 2. Both collections present — check for missing fields (migration needed?).
   const [toolFieldsRes, opsFieldsRes] = await Promise.all([
@@ -309,13 +309,16 @@ export async function checkInitializationState(baseUrl, token) {
       .filter(name => !existingOpsFields.has(name));
 
     if (missingToolFields.length > 0 || missingOpsFields.length > 0) {
-      return 'migration_needed';
+      return {
+        state: 'migration_needed',
+        details: { missingToolFields, missingOpsFields },
+      };
     }
   }
 
   // 3. Check that the M2O relation exists.
   const relRes = await directusFetch(baseUrl, token, '/relations/operations/tool');
-  if (relRes.status === 404) return 'in_progress';
+  if (relRes.status === 404) return { state: 'in_progress' };
 
   // 4. Check that at least one default-collation tool has been seeded.
   const defaultRes = await directusFetch(
@@ -324,10 +327,10 @@ export async function checkInitializationState(baseUrl, token) {
     '/items/tools?filter[tool_collation][_eq]=default&limit=1&fields=id',
   );
   if (defaultRes.ok && (defaultRes.data?.data?.length ?? 0) > 0) {
-    return 'complete';
+    return { state: 'complete' };
   }
 
-  return 'in_progress';
+  return { state: 'in_progress' };
 }
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
@@ -368,24 +371,27 @@ export async function initializeSchema(baseUrl, token) {
     resource: 'relation:operations.tool→tools',
   });
 
-  const aliasResult = await directusFetch(baseUrl, token, '/fields/tools','POST',
-      {
-          "type": "alias",
-          "meta": {
-              "interface": "list-o2m",
-              "special": ["o2m"],
-              "options": {"sort": null, "enableSelect": false, "enableLink": true,"template": "{{slug}} -> {{resolve}} / {{reject}}"}
-          },
-          "field": "operations"
-      }
-      );
-  const aliasRelationResult = await directusFetch(baseUrl, token, '/relations/operations/tool','PATCH',
-      {"collection":"operations","field":"tool","related_collection":"tools","meta":{"one_field":"operations","sort_field":null,"one_deselect_action":"delete"},"schema":{"on_delete":"CASCADE"}}
-      );
+  await directusFetch(baseUrl, token, '/fields/tools', 'POST', {
+    type: 'alias',
+    field: 'operations',
+    meta: {
+      interface: 'list-o2m',
+      special: ['o2m'],
+      options: { sort: null, enableSelect: false, enableLink: true, template: '{{slug}} -> {{resolve}} / {{reject}}' },
+    },
+  });
 
-  const nestOperationsInToolsResult = await directusFetch(baseUrl, token, '/collections','PATCH',
-      [{"collection":"operations","meta":{"sort":1,"group":"tools"}}]
-      )
+  await directusFetch(baseUrl, token, '/relations/operations/tool', 'PATCH', {
+    collection: 'operations',
+    field: 'tool',
+    related_collection: 'tools',
+    meta: { one_field: 'operations', sort_field: null, one_deselect_action: 'delete' },
+    schema: { on_delete: 'CASCADE' },
+  });
+
+  await directusFetch(baseUrl, token, '/collections', 'PATCH', [
+    { collection: 'operations', meta: { sort: 1, group: 'tools' } },
+  ]);
 
   return { actions };
 }
