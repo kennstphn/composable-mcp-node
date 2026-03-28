@@ -483,35 +483,34 @@ describe('App', () => {
 
     it('returns ok:true and action summaries on success', async () => {
       // Stub all Directus schema / items / users endpoints
-      const orig = mockDirectusFetch((url) => {
+      const orig = mockDirectusFetch((url, options) => {
+        const method = (options?.method || 'GET').toUpperCase();
         // collections check → 404 (not found) so they will be created
         if (/\/collections\//.test(url)) {
           return { ok: false, status: 404, json: async () => ({ errors: [] }) };
         }
         // collection creation → 200
-        if (/\/collections$/.test(url)) {
+        if (/\/collections$/.test(url) && method === 'POST') {
           return { ok: true, status: 200, json: async () => ({ data: {} }) };
         }
-        // relation check → 404, creation → 200
+        // relation check → 404
         if (/\/relations\//.test(url)) {
           return { ok: false, status: 404, json: async () => ({ errors: [] }) };
         }
-        if (/\/relations$/.test(url)) {
+        // relation creation → 200
+        if (/\/relations$/.test(url) && method === 'POST') {
           return { ok: true, status: 200, json: async () => ({ data: {} }) };
         }
         // tools list for default seeding → empty
-        if (/\/items\/tools/.test(url) && !url.includes('filter')) {
-          return { ok: true, status: 200, json: async () => ({ data: [] }) };
-        }
-        if (/\/items\/tools/.test(url)) {
+        if (/\/items\/tools/.test(url) && method === 'GET') {
           return { ok: true, status: 200, json: async () => ({ data: [] }) };
         }
         // tool creation → return a tool with an id
-        if (/\/items\/tools$/.test(url)) {
+        if (/\/items\/tools$/.test(url) && method === 'POST') {
           return { ok: true, status: 200, json: async () => ({ data: { id: 1 } }) };
         }
         // operation creation → 200
-        if (/\/items\/operations$/.test(url)) {
+        if (/\/items\/operations$/.test(url) && method === 'POST') {
           return { ok: true, status: 200, json: async () => ({ data: { id: 1 } }) };
         }
         // users/me → return a role
@@ -519,11 +518,11 @@ describe('App', () => {
           return { ok: true, status: 200, json: async () => ({ data: { role: 'role-uuid-123' } }) };
         }
         // permissions list → empty
-        if (/\/permissions/.test(url) && !url.includes('POST')) {
+        if (/\/permissions/.test(url) && method === 'GET') {
           return { ok: true, status: 200, json: async () => ({ data: [] }) };
         }
         // permissions creation → 200
-        if (/\/permissions$/.test(url)) {
+        if (/\/permissions$/.test(url) && method === 'POST') {
           return { ok: true, status: 200, json: async () => ({ data: { id: 1 } }) };
         }
         return { ok: true, status: 200, json: async () => ({ data: {} }) };

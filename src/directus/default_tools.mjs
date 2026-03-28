@@ -156,8 +156,9 @@ export const EDIT_TOOL_TOOL = {
       config: {
         code: [
           'module.exports = async function(data) {',
-          '  const patch = {};',
+          '  // Mutable fields of the tools collection (mirrors TOOLS_SCHEMA in schema.mjs)',
           '  const fields = ["slug","name","description","tool_collation","inputSchema","start_slug"];',
+          '  const patch = {};',
           '  for (const f of fields) {',
           '    if (data[f] !== undefined) patch[f] = data[f];',
           '  }',
@@ -214,8 +215,9 @@ export const EDIT_OPERATION_TOOL = {
       config: {
         code: [
           'module.exports = async function(data) {',
-          '  const patch = {};',
+          '  // Mutable fields of the operations collection (mirrors OPERATIONS_SCHEMA in schema.mjs)',
           '  const fields = ["slug","type","config","resolve","reject"];',
+          '  const patch = {};',
           '  for (const f of fields) {',
           '    if (data[f] !== undefined) patch[f] = data[f];',
           '  }',
