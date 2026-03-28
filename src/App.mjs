@@ -428,6 +428,14 @@ export class App {
         return res.status(204).end();
       }
 
+      if (method === 'ping') {
+        return res.json({
+          jsonrpc: '2.0',
+          id,
+          result: {},
+        });
+      }
+
       if (method === 'tools/list') {
         return res.json({
           jsonrpc: '2.0',
