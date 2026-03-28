@@ -153,16 +153,6 @@ export const OPERATIONS_SCHEMA = {
   ],
 };
 
-/** O2M alias field to add to the `tools` collection after the relation is created */
-export const TOOLS_OPERATIONS_ALIAS = {
-  field: 'operations',
-  type: 'alias',
-  meta: {
-    interface: 'list-o2m',
-    special: ['o2m'],
-    options: { fields: ['slug', 'type', 'resolve', 'reject'] },
-  },
-};
 
 /** Relation: operations.tool → tools.id (M2O), with operations as the O2M alias on tools */
 export const OPERATIONS_TOOL_RELATION = {
@@ -225,7 +215,7 @@ export async function ensureCollection(baseUrl, token, schema) {
 
 async function fieldExists(baseUrl, token, collection, fieldName) {
   const { status } = await directusFetch(baseUrl, token, `/fields/${collection}/${fieldName}`);
-  return status !== 404;
+  return status === 200;
 }
 
 export async function ensureField(baseUrl, token, collection, field) {
@@ -243,7 +233,7 @@ export async function ensureField(baseUrl, token, collection, field) {
 
 async function relationExists(baseUrl, token, collection, field) {
   const { status } = await directusFetch(baseUrl, token, `/relations/${collection}/${field}`);
-  return status !== 404;
+  return status === 200;
 }
 
 export async function ensureRelation(baseUrl, token, relation) {
@@ -363,7 +353,7 @@ export async function initializeSchema(baseUrl, token) {
   // 2. operations collection (without the tool M2O field — that's created via the relation)
   const opsSchemaWithoutRelation = {
     ...OPERATIONS_SCHEMA,
-    fields: OPERATIONS_SCHEMA.fields.filter(f => f.field !== 'tool'),
+    fields: OPERATIONS_SCHEMA.fields,
   };
   const opsResult = await ensureCollection(baseUrl, token, opsSchemaWithoutRelation);
   actions.push({
@@ -377,6 +367,25 @@ export async function initializeSchema(baseUrl, token) {
     action: relationResult.created ? 'created' : 'already_exists',
     resource: 'relation:operations.tool→tools',
   });
+
+  const aliasResult = await directusFetch(baseUrl, token, '/fields/tools','POST',
+      {
+          "type": "alias",
+          "meta": {
+              "interface": "list-o2m",
+              "special": ["o2m"],
+              "options": {"sort": null, "enableSelect": false, "enableLink": true,"template": "{{slug}} -> {{resolve}} / {{reject}}"}
+          },
+          "field": "operations"
+      }
+      );
+  const aliasRelationResult = await directusFetch(baseUrl, token, '/relations/operations/tool','PATCH',
+      {"collection":"operations","field":"tool","related_collection":"tools","meta":{"one_field":"operations","sort_field":null,"one_deselect_action":"delete"},"schema":{"on_delete":"CASCADE"}}
+      );
+
+  const nestOperationsInToolsResult = await directusFetch(baseUrl, token, '/collections','PATCH',
+      [{"collection":"operations","meta":{"sort":1,"group":"tools"}}]
+      )
 
   return { actions };
 }
