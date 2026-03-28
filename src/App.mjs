@@ -376,8 +376,9 @@ export class App {
 
     // MCP endpoint — per-request Directus fetch using the caller's Bearer token
     this.app.post('/mcp/:tool_collation', async (req, res) => {
+      const { jsonrpc, id, method, params } = req.body || {};
       const bearerToken = extractBearerToken(req);
-      if (!bearerToken) {
+      if (!bearerToken && method !== 'initialize') {
         return res.status(401).json({ error: 'Missing or invalid Authorization header' });
       }
 
@@ -389,7 +390,6 @@ export class App {
         return res.status(err.status || 500).json({ error: err.message });
       }
 
-      const { jsonrpc, id, method, params } = req.body || {};
 
       if (method === 'initialize') {
         return res.json({
