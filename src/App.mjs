@@ -33,6 +33,19 @@ async function fetchToolsForCollation(baseUrl, bearerToken, toolCollation) {
   }
 
   const { data } = await response.json();
+  if(data){
+    // we also need to parse the inputSchema for each tool's operations, if present
+    for (const tool of data) {
+        if(tool.inputSchema && typeof tool.inputSchema === 'string'){
+            try {
+                tool.inputSchema = JSON.parse(tool.inputSchema);
+            } catch (e) {
+                console.warn(`Failed to parse inputSchema for tool "${tool.slug || tool.name}":`, e);
+                tool.inputSchema = { type: 'object', properties: {} };
+            }
+        }
+    }
+  }
   return data || [];
 }
 
