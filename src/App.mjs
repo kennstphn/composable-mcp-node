@@ -411,6 +411,10 @@ export class App {
         });
       }
 
+      if (method === 'notifications/initialized') {
+        return res.status(204).end();
+      }
+
       if (method === 'tools/list') {
         return res.json({
           jsonrpc: '2.0',
