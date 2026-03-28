@@ -35,27 +35,24 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 
 | File | Status | Description |
 |------|--------|-------------|
-| `src/App.mjs` | ⚙️ mostly working | Express server, Directus flow loader, route scaffolding |
-| `src/functions/run_operations.mjs` | ⚙️ mostly working | Iterative flow runner with loop-guard and context tracking |
-| `src/operations/ScriptOperation.mjs` | ⚙️ mostly working | Runs user JS in a sandboxed `node:vm` context |
-| `main.mjs` | ❌ syntax errors | Entry point — has typos that prevent startup |
+| `src/App.mjs` | ✅ working | Express server, Directus flow loader, MCP endpoints |
+| `src/functions/run_operations.mjs` | ✅ working | Iterative flow runner with loop-guard and context tracking |
+| `src/operations/ScriptOperation.mjs` | ✅ working | Runs user JS in a sandboxed `node:vm` context |
+| `src/operations/FetchRequest.mjs` | ✅ working | Outbound HTTP calls with configurable method, headers, body |
+| `main.mjs` | ✅ working | Entry point |
+| `package.json` | ✅ working | Dependencies declared (express, ajv) |
 
 ### Working pieces
 
-- **Express HTTP server** (`GET /health`, `POST /flows/:flowName`)
+- **Express HTTP server** (`GET /health`, `GET /tools`, `POST /flows/:flowName`)
 - **Directus loader** — fetches tool definitions from a Directus collection at startup
 - **Iterative flow runner** — executes a chain of operations by slug, follows resolve/reject links, guards against infinite loops (max 50 visits per operation)
 - **ScriptOperation** — lets a tool step run arbitrary JS; user code exports `async function(data) { ... }`
-
-### Known gaps / bugs
-
-- `main.mjs` has syntax errors (wrong punctuation in the config object)
-- `App.executeFlow()` is stubbed — it doesn't call `run_operations` yet
-- `run_operations.mjs` references `initialEnv` which is never passed in
-- `FetchRequest` operation is imported but the file doesn't exist
-- `ScriptOperation.mjs` mixes CommonJS `require()` with ES module syntax
-- No `package.json` (dependencies not declared)
-- No tests
+- **FetchRequest** — outbound HTTP calls with URL template interpolation, configurable method/headers/body
+- **MCP tool listing** — `GET /tools` returns all loaded flows as MCP tool descriptors
+- **Input validation** — validates request body against flow's `inputSchema` using AJV
+- **MCP response format** — `POST /flows/:flowName` returns `{ content: [{ type: "text", text: "..." }] }`
+- **Unit tests** — 24 tests across `run_operations`, `ScriptOperation`, and `FetchRequest`
 
 ---
 
@@ -98,25 +95,25 @@ main.mjs
 ## Roadmap
 
 ### v0.1 — Make it run
-- [ ] Fix syntax errors in `main.mjs`
-- [ ] Add `package.json` with `express` dependency
-- [ ] Wire `App.executeFlow()` to call `run_operations`
-- [ ] Fix `run_operations` signature to accept and thread `initialEnv`
-- [ ] Fix `ScriptOperation` to use ES module `import` instead of `require`
+- [x] Fix syntax errors in `main.mjs`
+- [x] Add `package.json` with `express` dependency
+- [x] Wire `App.executeFlow()` to call `run_operations`
+- [x] Fix `run_operations` signature to accept and thread `initialEnv`
+- [x] Fix `ScriptOperation` to use ES module `import` instead of `require`
 
 ### v0.2 — Complete core operations
-- [ ] Implement `FetchRequest` operation (outbound HTTP with configurable method, headers, body)
-- [ ] Decide on and document the full operation config schema
-- [ ] Return a clean, predictable response shape from `POST /flows/:flowName`
+- [x] Implement `FetchRequest` operation (outbound HTTP with configurable method, headers, body)
+- [x] Decide on and document the full operation config schema
+- [x] Return a clean, predictable response shape from `POST /flows/:flowName`
 
 ### v0.3 — MCP protocol layer
-- [ ] Add MCP tool-listing endpoint (`GET /tools` or per-spec equivalent)
-- [ ] Map each loaded flow to an MCP `tool` descriptor (name, description, inputSchema)
-- [ ] Validate incoming tool call arguments against the declared input schema
-- [ ] Return MCP-conformant `content` blocks from tool calls
+- [x] Add MCP tool-listing endpoint (`GET /tools`)
+- [x] Map each loaded flow to an MCP `tool` descriptor (name, description, inputSchema)
+- [x] Validate incoming tool call arguments against the declared input schema
+- [x] Return MCP-conformant `content` blocks from tool calls
 
 ### v0.4 — Reliability & developer experience
-- [ ] Add unit tests for `run_operations` and each operation type
+- [x] Add unit tests for `run_operations` and each operation type
 - [ ] Add integration test for the full HTTP → flow → response path
 - [ ] Structured logging (request ID, flow name, per-step timing)
 - [ ] Graceful shutdown
