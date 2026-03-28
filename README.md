@@ -66,7 +66,7 @@ main.mjs
        └─ POST /flows/:flowName
               └─ run_operations(operations, start_slug, env)
                     ├─ ScriptOperation   — sandboxed JS execution
-                    └─ FetchRequest      — outbound HTTP calls  (planned)
+                    └─ FetchRequest      — outbound HTTP calls
 ```
 
 ### Operation schema (what Directus stores)
@@ -125,7 +125,7 @@ main.mjs
 
 ---
 
-## Quick start (once v0.1 is done)
+## Quick start
 
 ```bash
 npm install
@@ -133,7 +133,7 @@ DIRECTUS_BASE_URL=https://your-directus.example.com \
 DIRECTUS_TOKEN=your-token \
 NODE_ENV=development \
 PORT=8787 \
-node main.mjs
+npm start
 ```
 
 ```bash
@@ -148,6 +148,12 @@ curl -X POST http://localhost:8787/flows/my-tool \
 
 ---
 
+## Tests
+
+```bash
+npm test
+```
+
 ## Contributing
 
-The project is in early development. The best way to help right now is to pick an item from the v0.1 or v0.2 roadmap, open a PR, and include at least one test for the code you add.
+The project is in early development. The best way to help right now is to pick an item from the v0.4 or v0.5 roadmap, open a PR, and include at least one test for the code you add.
