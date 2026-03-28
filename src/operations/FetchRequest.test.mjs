@@ -155,4 +155,92 @@ describe('FetchRequest', () => {
       globalThis.fetch = origFetch;
     }
   });
+
+  // ─── Header interpolation ─────────────────────────────────────────────────
+
+  it('interpolates context values into header values', async () => {
+    const op = new FetchRequest({
+      url: 'https://example.com/api',
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer {{$env.DIRECTUS_TOKEN}}' },
+    });
+
+    const fetchMock = mock.fn(async () => makeResponse(200, {}));
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      await op.run({ $env: { DIRECTUS_TOKEN: 'my-secret-token' } });
+      const [, options] = fetchMock.mock.calls[0].arguments;
+      assert.equal(options.headers['Authorization'], 'Bearer my-secret-token');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  // ─── Body interpolation ───────────────────────────────────────────────────
+
+  it('interpolates string values in an object body', async () => {
+    const op = new FetchRequest({
+      url: 'https://example.com/api',
+      method: 'POST',
+      body: { slug: '{{slug}}', name: '{{name}}' },
+    });
+
+    const fetchMock = mock.fn(async () => makeResponse(200, {}));
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      await op.run({ slug: 'my-tool', name: 'My Tool' });
+      const [, options] = fetchMock.mock.calls[0].arguments;
+      assert.deepEqual(JSON.parse(options.body), { slug: 'my-tool', name: 'My Tool' });
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('passes through a raw object value when body is an exact placeholder', async () => {
+    const patch = { slug: 'updated', name: 'Updated Name' };
+    const op = new FetchRequest({
+      url: 'https://example.com/api',
+      method: 'PATCH',
+      body: '{{$last}}',
+    });
+
+    const fetchMock = mock.fn(async () => makeResponse(200, {}));
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      await op.run({ $last: patch });
+      const [, options] = fetchMock.mock.calls[0].arguments;
+      assert.deepEqual(JSON.parse(options.body), patch);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('passes a nested object value through when body field is an exact placeholder', async () => {
+    const config = { url: 'https://api.example.com', method: 'POST' };
+    const op = new FetchRequest({
+      url: 'https://example.com/api',
+      method: 'POST',
+      body: { type: '{{type}}', config: '{{config}}' },
+    });
+
+    const fetchMock = mock.fn(async () => makeResponse(200, {}));
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      await op.run({ type: 'fetch_request', config });
+      const [, options] = fetchMock.mock.calls[0].arguments;
+      const parsed = JSON.parse(options.body);
+      assert.equal(parsed.type, 'fetch_request');
+      assert.deepEqual(parsed.config, config);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
 });

@@ -4,9 +4,9 @@ A Node.js HTTP server that exposes **composed tools** as MCP (Model Context Prot
 
 ---
 
-## What We're Building
+## What We’re Building
 
-An MCP server (HTTP transport, no SSE) where each "tool" is a named **flow**: an ordered chain of operations that accepts input, runs them in sequence, and returns a structured result. Tools are stored externally (currently Directus) and fetched per request using the caller's Bearer token, so new tools can be added or modified without redeploying the server.
+An MCP server (HTTP transport, no SSE) where each “tool” is a named **flow**: an ordered chain of operations that accepts input, runs them in sequence, and returns a structured result. Tools are stored externally (currently Directus) and fetched per request using the caller’s Bearer token, so new tools can be added or modified without redeploying the server.
 
 ### Core idea
 
@@ -39,20 +39,26 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 | `src/functions/run_operations.mjs` | ✅ working | Iterative flow runner with loop-guard and context tracking |
 | `src/operations/ScriptOperation.mjs` | ✅ working | Runs user JS in a sandboxed `node:vm` context |
 | `src/operations/FetchRequest.mjs` | ✅ working | Outbound HTTP calls with configurable method, headers, body |
+| `src/directus/schema.mjs` | ✅ working | Ensures `tools` and `operations` collections exist in Directus |
+| `src/directus/default_tools.mjs` | ✅ working | Seeds the built-in "default" collation tools |
+| `src/directus/permissions.mjs` | ✅ working | Creates per-user CRUD permissions on tools/operations |
 | `main.mjs` | ✅ working | Entry point |
 | `package.json` | ✅ working | Dependencies declared (express, ajv) |
 
 ### Working pieces
 
-- **Express HTTP server** (`GET /health`, `POST /mcp/:tool_collation`, `GET /rest/:tool_collation`, `POST /rest/events/:tool_collation/:tool_name`)
+- **Express HTTP server** (`GET /health`, `POST /initialize`, `POST /mcp/:tool_collation`, `GET /rest/:tool_collation`, `POST /rest/events/:tool_collation/:tool_name`)
 - **Directus loader** — fetches tool definitions per request from a Directus collection
 - **Iterative flow runner** — executes a chain of operations by slug, follows resolve/reject links, guards against infinite loops (max 50 visits per operation)
 - **ScriptOperation** — lets a tool step run arbitrary JS; user code exports `async function(data) { ... }`
-- **FetchRequest** — outbound HTTP calls with URL template interpolation, configurable method/headers/body
+- **FetchRequest** — outbound HTTP calls with `{{key}}` template interpolation in URL, headers, and body; configurable method/headers/body
 - **MCP tool listing** — `POST /mcp/:tool_collation` with `tools/list` returns MCP tool descriptors
-- **Input validation** — validates request body against flow's `inputSchema` using AJV
+- **Input validation** — validates request body against flow’s `inputSchema` using AJV
 - **MCP response format** — `POST /mcp/:tool_collation` returns `{ content: [{ type: "text", text: "..." }] }`
-- **Unit tests** — 24 tests across `run_operations`, `ScriptOperation`, and `FetchRequest`
+- **Bootstrap endpoint** — `POST /initialize` creates Directus schema, seeds default tools, and sets up permissions in one call
+- **Default collation** — the `"default"` tool_collation includes five built-in tools for managing tools and operations
+- **Per-user permissions** — CRUD on `tools` and `operations` scoped to the item owner (`user_created = $CURRENT_USER`)
+- **Unit tests** — 54 tests across `run_operations`, `ScriptOperation`, `FetchRequest`, and `App`
 
 ---
 
@@ -63,6 +69,10 @@ main.mjs
   └─ App.mjs  (Express + lifecycle)
        ├─ fetchToolsForCollation()  → fetches tool definitions per request
        ├─ GET  /health
+       ├─ POST /initialize
+       │    ├─ initializeSchema()    → src/directus/schema.mjs
+       │    ├─ seedDefaultTools()    → src/directus/default_tools.mjs
+       │    └─ setupPermissions()    → src/directus/permissions.mjs
        ├─ GET  /rest/:tool_collation
        ├─ POST /mcp/:tool_collation
        └─ POST /rest/events/:tool_collation/:tool_name
@@ -87,10 +97,39 @@ main.mjs
 
 | Key | Type | Notes |
 |-----|------|-------|
-| `$env` | object (frozen) | Server environment config |
+| `$env` | object (frozen) | Server environment config — includes `PORT`, `DIRECTUS_BASE_URL`, `NODE_ENV`, and `DIRECTUS_TOKEN` (the caller’s bearer token) |
 | `$last` | any | Return value of the previous operation |
 | `$vars` | object | Mutable accumulator, writable by operations |
 | `[slug]` | any | Result of each completed operation, keyed by its slug |
+
+`DIRECTUS_TOKEN` being available in `$env` means any operation can authenticate back to Directus using `{{$env.DIRECTUS_TOKEN}}` without hardcoding credentials.
+
+### FetchRequest interpolation
+
+`{{key}}` placeholders are resolved against the current context everywhere in the operation config — not just the URL:
+
+| Config field | Interpolated? | Notes |
+|---|---|---|
+| `url` | ✅ | Always stringified |
+| `headers.*` | ✅ | Each header value is interpolated |
+| `body` (string) | ✅ | Embedded placeholders stringify; an exact `"{{key}}"` returns the raw value |
+| `body` (object) | ✅ | All string leaf values are interpolated recursively |
+
+When the entire value is a single placeholder (e.g., `"{{$last}}"`), the raw context value is returned as-is, preserving objects and arrays. This makes it easy to forward a previous operation’s result directly as a request body.
+
+---
+
+## Default collation
+
+`POST /initialize` seeds five built-in tools into the `"default"` `tool_collation`. Call these via `POST /mcp/default` or `POST /rest/events/default/<tool-slug>` to manage your tool library without leaving the MCP interface.
+
+| Tool slug | What it does |
+|---|---|
+| `list_operation_types` | Returns the operation types supported by this server |
+| `create_tool` | Creates a new tool definition in Directus |
+| `add_operation` | Adds an operation step to an existing tool |
+| `edit_tool` | Updates fields on an existing tool (sparse PATCH) |
+| `edit_operation` | Updates fields on an existing operation step (sparse PATCH) |
 
 ---
 
@@ -102,9 +141,9 @@ main.mjs
 - [ ] Per-tool timeout and resource limits for script operations.
 
 ### Dev Ease
-- [ ] create a POST /initialize handler which checks for needed collections in directus and creates/updates them if needed
-- [ ] add a default tool_collation "default" with tools [create_tool, add_operation, edit_tool, edit_operation, list_operation_types]
-- [ ] Directus permissions for CRUD on tools / operations should be essentially "owned by this user"
+- [x] create a POST /initialize handler which checks for needed collections in directus and creates/updates them if needed
+- [x] add a default tool_collation "default" with tools [create_tool, add_operation, edit_tool, edit_operation, list_operation_types]
+- [x] Directus permissions for CRUD on tools / operations should be essentially "owned by this user"
 
 ---
 
@@ -123,6 +162,10 @@ npm start
 # health check
 curl http://localhost:8787/health
 
+# bootstrap Directus schema + default tools + permissions (run once per Directus instance)
+curl -X POST http://localhost:8787/initialize \
+  -H 'Authorization: Bearer <directus-token>'
+
 # list tools in a collation (MCP)
 curl -X POST http://localhost:8787/mcp/my-collation \
   -H 'Content-Type: application/json' \
@@ -140,6 +183,23 @@ curl -X POST http://localhost:8787/rest/events/my-collation/my-tool \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <directus-token>' \
   -d '{"input": "hello"}'
+
+# create a new tool using the default collation
+curl -X POST http://localhost:8787/mcp/default \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <directus-token>' \
+  -d '{ \
+    "jsonrpc": "2.0", "id": 1, "method": "tools/call", \
+    "params": { \
+      "name": "create_tool", \
+      "arguments": { \
+        "slug": "my-new-tool", \
+        "name": "My New Tool", \
+        "tool_collation": "my-collation", \
+        "start_slug": "step-1" \
+      } \
+    } \
+  }'
 ```
 
 ---
@@ -152,4 +212,4 @@ npm test
 
 ## Contributing
 
-The project is in early development. The best way to help right now is to pick an item from the v0.4 or v0.5 roadmap, open a PR, and include at least one test for the code you add.
+The project is in early development. The best way to help right now is to pick an item from the roadmap, open a PR, and include at least one test for the code you add.
