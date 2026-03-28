@@ -568,7 +568,245 @@ describe('App', () => {
     });
   });
 
-  // ─── DIRECTUS_TOKEN in $env ───────────────────────────────────────────────
+  // ─── GET /initialize ─────────────────────────────────────────────────────
+
+  describe('GET /initialize', () => {
+    let app, base;
+    before(async () => { app = makeApp(); base = await startApp(app); });
+    after(() => app.close());
+
+    it('returns state:needed when no Authorization header is provided', async () => {
+      const res = await fetch(`${base}/initialize`);
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.state, 'needed');
+    });
+
+    it('returns state:needed when both collections are absent', async () => {
+      const orig = mockDirectusFetch(() => ({
+        ok: false, status: 404, json: async () => ({ errors: [] }),
+      }));
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          headers: { 'Authorization': 'Bearer test-token' },
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.state, 'needed');
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('returns state:in_progress when only one collection exists', async () => {
+      const orig = mockDirectusFetch((url) => {
+        if (/\/collections\/tools/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        }
+        return { ok: false, status: 404, json: async () => ({ errors: [] }) };
+      });
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          headers: { 'Authorization': 'Bearer test-token' },
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.state, 'in_progress');
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('returns state:complete when everything is in place', async () => {
+      const TOOL_FIELDS = [
+        'id', 'slug', 'name', 'description', 'tool_collation',
+        'inputSchema', 'start_slug', 'user_created', 'date_created',
+      ].map(field => ({ field }));
+      const OPS_FIELDS = [
+        'id', 'slug', 'type', 'config', 'resolve', 'reject',
+        'tool', 'user_created', 'date_created',
+      ].map(field => ({ field }));
+
+      const orig = mockDirectusFetch((url, options) => {
+        const method = (options?.method || 'GET').toUpperCase();
+        if (/\/collections\/(tools|operations)/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        }
+        if (/\/fields\/tools/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: TOOL_FIELDS }) };
+        }
+        if (/\/fields\/operations/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: OPS_FIELDS }) };
+        }
+        if (/\/relations\/operations\/tool/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        }
+        if (/\/items\/tools/.test(url) && method === 'GET') {
+          return { ok: true, status: 200, json: async () => ({ data: [{ id: 1 }] }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ data: {} }) };
+      });
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          headers: { 'Authorization': 'Bearer test-token' },
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.state, 'complete');
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('returns state:in_progress when collections exist but no default tools are seeded', async () => {
+      const TOOL_FIELDS = [
+        'id', 'slug', 'name', 'description', 'tool_collation',
+        'inputSchema', 'start_slug', 'user_created', 'date_created',
+      ].map(field => ({ field }));
+      const OPS_FIELDS = [
+        'id', 'slug', 'type', 'config', 'resolve', 'reject',
+        'tool', 'user_created', 'date_created',
+      ].map(field => ({ field }));
+
+      const orig = mockDirectusFetch((url, options) => {
+        const method = (options?.method || 'GET').toUpperCase();
+        if (/\/collections\/(tools|operations)/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        }
+        if (/\/fields\/tools/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: TOOL_FIELDS }) };
+        }
+        if (/\/fields\/operations/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: OPS_FIELDS }) };
+        }
+        if (/\/relations\/operations\/tool/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        }
+        if (/\/items\/tools/.test(url) && method === 'GET') {
+          return { ok: true, status: 200, json: async () => ({ data: [] }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ data: {} }) };
+      });
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          headers: { 'Authorization': 'Bearer test-token' },
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.state, 'in_progress');
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('returns state:migration_needed when collections exist but fields are missing', async () => {
+      // Only return a subset of the expected fields (missing several)
+      const orig = mockDirectusFetch((url) => {
+        if (/\/collections\/(tools|operations)/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        }
+        if (/\/fields\//.test(url)) {
+          // Return only 'id' — everything else is missing
+          return { ok: true, status: 200, json: async () => ({ data: [{ field: 'id' }] }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ data: {} }) };
+      });
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          headers: { 'Authorization': 'Bearer test-token' },
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.state, 'migration_needed');
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('returns state:in_progress when the M2O relation is absent', async () => {
+      const TOOL_FIELDS = [
+        'id', 'slug', 'name', 'description', 'tool_collation',
+        'inputSchema', 'start_slug', 'user_created', 'date_created',
+      ].map(field => ({ field }));
+      const OPS_FIELDS = [
+        'id', 'slug', 'type', 'config', 'resolve', 'reject',
+        'tool', 'user_created', 'date_created',
+      ].map(field => ({ field }));
+
+      const orig = mockDirectusFetch((url) => {
+        if (/\/collections\/(tools|operations)/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        }
+        if (/\/fields\/tools/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: TOOL_FIELDS }) };
+        }
+        if (/\/fields\/operations/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: OPS_FIELDS }) };
+        }
+        if (/\/relations\/operations\/tool/.test(url)) {
+          return { ok: false, status: 404, json: async () => ({ errors: [] }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ data: {} }) };
+      });
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          headers: { 'Authorization': 'Bearer test-token' },
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.state, 'in_progress');
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('returns 401 and state:needed when Directus rejects the token', async () => {
+      const orig = mockDirectusFetch(() => ({
+        ok: false, status: 401, json: async () => ({ errors: [] }),
+      }));
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          headers: { 'Authorization': 'Bearer bad-token' },
+        });
+        assert.equal(res.status, 401);
+        const body = await res.json();
+        assert.equal(body.state, 'needed');
+        assert.ok(body.error);
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+  });
+
+  // ─── GET / ───────────────────────────────────────────────────────────────
+
+  describe('GET /', () => {
+    let app, base;
+    before(async () => { app = makeApp(); base = await startApp(app); });
+    after(() => app.close());
+
+    it('returns 200 with HTML content-type', async () => {
+      const res = await fetch(`${base}/`);
+      assert.equal(res.status, 200);
+      assert.ok(res.headers.get('content-type').includes('text/html'));
+    });
+
+    it('HTML body includes a link to the Directus admin', async () => {
+      const res = await fetch(`${base}/`);
+      const html = await res.text();
+      assert.ok(html.includes('https://directus.test'));
+    });
+
+    it('HTML body includes the initialization form', async () => {
+      const res = await fetch(`${base}/`);
+      const html = await res.text();
+      assert.ok(html.includes('token-input'));
+      assert.ok(html.includes('runInit'));
+      assert.ok(html.includes('checkStatus'));
+    });
+  });
+
+  // ─── bearer token is available to tool operations via $env.DIRECTUS_TOKEN ───
 
   describe('bearer token is available to tool operations via $env.DIRECTUS_TOKEN', () => {
     let app, base;

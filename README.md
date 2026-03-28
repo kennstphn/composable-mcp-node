@@ -35,7 +35,7 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 
 | File | Status | Description |
 |------|--------|-------------|
-| `src/App.mjs` | ✅ working | Express server, Directus tool loader, MCP/REST endpoints |
+| `src/App.mjs` | ✅ working | Express server, Directus tool loader, MCP/REST endpoints, landing page |
 | `src/functions/run_operations.mjs` | ✅ working | Iterative flow runner with loop-guard and context tracking |
 | `src/operations/ScriptOperation.mjs` | ✅ working | Runs user JS in a sandboxed `node:vm` context |
 | `src/operations/FetchRequest.mjs` | ✅ working | Outbound HTTP calls with configurable method, headers, body |
@@ -47,7 +47,7 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 
 ### Working pieces
 
-- **Express HTTP server** (`GET /health`, `POST /initialize`, `POST /mcp/:tool_collation`, `GET /rest/:tool_collation`, `POST /rest/events/:tool_collation/:tool_name`)
+- **Express HTTP server** (`GET /`, `GET /health`, `GET /initialize`, `POST /initialize`, `POST /mcp/:tool_collation`, `GET /rest/:tool_collation`, `POST /rest/events/:tool_collation/:tool_name`)
 - **Directus loader** — fetches tool definitions per request from a Directus collection
 - **Iterative flow runner** — executes a chain of operations by slug, follows resolve/reject links, guards against infinite loops (max 50 visits per operation)
 - **ScriptOperation** — lets a tool step run arbitrary JS; user code exports `async function(data) { ... }`
@@ -55,10 +55,11 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 - **MCP tool listing** — `POST /mcp/:tool_collation` with `tools/list` returns MCP tool descriptors
 - **Input validation** — validates request body against flow’s `inputSchema` using AJV
 - **MCP response format** — `POST /mcp/:tool_collation` returns `{ content: [{ type: "text", text: "..." }] }`
+- **Landing page** — `GET /` serves a dark-themed HTML page with a link to the Directus admin, an init-state badge, and a token form for running `POST /initialize` without leaving the browser
+- **Initialization state check** — `GET /initialize` probes Directus and returns one of four states (see below); no auth required for the 404-path, 401/403 is passed through
 - **Bootstrap endpoint** — `POST /initialize` creates Directus schema, seeds default tools, and sets up permissions in one call
-- **Default collation** — the `"default"` tool_collation includes five built-in tools for managing tools and operations
 - **Per-user permissions** — CRUD on `tools` and `operations` scoped to the item owner (`user_created = $CURRENT_USER`)
-- **Unit tests** — 54 tests across `run_operations`, `ScriptOperation`, `FetchRequest`, and `App`
+- **Unit tests** — 65 tests across `run_operations`, `ScriptOperation`, `FetchRequest`, and `App`
 
 ---
 
@@ -68,7 +69,9 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 main.mjs
   └─ App.mjs  (Express + lifecycle)
        ├─ fetchToolsForCollation()  → fetches tool definitions per request
+       ├─ GET  /                    → HTML landing page
        ├─ GET  /health
+       ├─ GET  /initialize          → checkInitializationState() → src/directus/schema.mjs
        ├─ POST /initialize
        │    ├─ initializeSchema()    → src/directus/schema.mjs
        │    ├─ seedDefaultTools()    → src/directus/default_tools.mjs
@@ -133,7 +136,40 @@ When the entire value is a single placeholder (e.g., `"{{$last}}"`), the raw con
 
 ---
 
-## Roadmap
+## Initialization state (`GET /initialize`)
+
+Send a `Bearer` token in the `Authorization` header to probe the current state of your Directus instance:
+
+```bash
+curl http://localhost:8787/initialize \
+  -H 'Authorization: Bearer <directus-token>'
+# → { "state": "needed" | "in_progress" | "migration_needed" | "complete" }
+```
+
+| State | Meaning |
+|-------|---------|
+| `needed` | Neither the `tools` nor the `operations` collection exists — fresh installation |
+| `in_progress` | Collections exist but initialization is incomplete (missing relation or default tools) |
+| `migration_needed` | Collections exist but one or more expected fields are absent (app was updated) — run `POST /initialize` to add them |
+| `complete` | All collections, fields, relations, and default tools are in place |
+
+When no token is provided the endpoint returns `{ "state": "needed" }` without contacting Directus.
+
+---
+
+## Landing page (`GET /`)
+
+Navigating to the server root in a browser shows a setup dashboard:
+
+![Landing page screenshot](https://github.com/user-attachments/assets/c7489934-2f84-4c45-bc88-829671b56430)
+
+- **Open Directus Admin ↗** — a direct link to `DIRECTUS_BASE_URL/admin/`
+- **Check Status** — calls `GET /initialize` with the entered token and updates the badge
+- **Initialize** — calls `POST /initialize`; the button is hidden once status is `complete`
+
+---
+
+
 
 ### Performance
 - [ ] Tool lists are visible & unique by authorization & collation index. Hash this for a (in memory? filesystem?) cached list and throttle rechecks to a configured # of seconds
@@ -144,6 +180,8 @@ When the entire value is a single placeholder (e.g., `"{{$last}}"`), the raw con
 - [x] create a POST /initialize handler which checks for needed collections in directus and creates/updates them if needed
 - [x] add a default tool_collation "default" with tools [create_tool, add_operation, edit_tool, edit_operation, list_operation_types]
 - [x] Directus permissions for CRUD on tools / operations should be essentially "owned by this user"
+- [x] GET /initialize — returns initialization state (`complete`, `in_progress`, `needed`, `migration_needed`)
+- [x] GET / — HTML landing page with Directus link and initialization form
 
 ---
 
@@ -159,6 +197,13 @@ npm start
 ```
 
 ```bash
+# open the landing page in your browser
+open http://localhost:8787/
+
+# check initialization state (JSON)
+curl http://localhost:8787/initialize \
+  -H 'Authorization: Bearer <directus-token>'
+
 # health check
 curl http://localhost:8787/health
 
