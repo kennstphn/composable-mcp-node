@@ -255,6 +255,89 @@ export async function ensureRelation(baseUrl, token, relation) {
   return { created: true };
 }
 
+// ─── Initialization state check ───────────────────────────────────────────────
+
+/**
+ * Probe Directus to determine the current initialization state.
+ *
+ * States:
+ *  - `needed`           — neither `tools` nor `operations` collection exists
+ *  - `in_progress`      — collections exist but setup is incomplete (missing
+ *                         relation, or default tools not yet seeded)
+ *  - `migration_needed` — collections exist but one or more expected fields are
+ *                         absent (schema was updated in a newer app version)
+ *  - `complete`         — everything is in place
+ *
+ * Throws with `err.status` set to 401/403 when the token is rejected by Directus.
+ *
+ * @param {string} baseUrl - Directus base URL
+ * @param {string} token   - Bearer token with at least schema-read rights
+ * @returns {Promise<'needed'|'in_progress'|'migration_needed'|'complete'>}
+ */
+export async function checkInitializationState(baseUrl, token) {
+  // 1. Check whether the two core collections exist.
+  const toolsRes = await directusFetch(baseUrl, token, '/collections/tools');
+  if (toolsRes.status === 401 || toolsRes.status === 403) {
+    const err = new Error('Directus authorization failed');
+    err.status = toolsRes.status;
+    throw err;
+  }
+  const toolsExists = toolsRes.status !== 404;
+
+  const opsRes = await directusFetch(baseUrl, token, '/collections/operations');
+  if (opsRes.status === 401 || opsRes.status === 403) {
+    const err = new Error('Directus authorization failed');
+    err.status = opsRes.status;
+    throw err;
+  }
+  const opsExists = opsRes.status !== 404;
+
+  if (!toolsExists && !opsExists) return 'needed';
+  if (!toolsExists || !opsExists) return 'in_progress';
+
+  // 2. Both collections present — check for missing fields (migration needed?).
+  const [toolFieldsRes, opsFieldsRes] = await Promise.all([
+    directusFetch(baseUrl, token, '/fields/tools'),
+    directusFetch(baseUrl, token, '/fields/operations'),
+  ]);
+
+  if (toolFieldsRes.ok && opsFieldsRes.ok) {
+    const existingToolFields = new Set(
+      (toolFieldsRes.data?.data || []).map(f => f.field),
+    );
+    const existingOpsFields = new Set(
+      (opsFieldsRes.data?.data || []).map(f => f.field),
+    );
+
+    const missingToolFields = TOOLS_SCHEMA.fields
+      .map(f => f.field)
+      .filter(name => !existingToolFields.has(name));
+    const missingOpsFields = OPERATIONS_SCHEMA.fields
+      .map(f => f.field)
+      .filter(name => !existingOpsFields.has(name));
+
+    if (missingToolFields.length > 0 || missingOpsFields.length > 0) {
+      return 'migration_needed';
+    }
+  }
+
+  // 3. Check that the M2O relation exists.
+  const relRes = await directusFetch(baseUrl, token, '/relations/operations/tool');
+  if (relRes.status === 404) return 'in_progress';
+
+  // 4. Check that at least one default-collation tool has been seeded.
+  const defaultRes = await directusFetch(
+    baseUrl,
+    token,
+    '/items/tools?filter[tool_collation][_eq]=default&limit=1&fields=id',
+  );
+  if (defaultRes.ok && (defaultRes.data?.data?.length ?? 0) > 0) {
+    return 'complete';
+  }
+
+  return 'in_progress';
+}
+
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
 /**
