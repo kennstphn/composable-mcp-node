@@ -96,34 +96,15 @@ main.mjs
 
 ## Roadmap
 
-### v0.1 — Make it run
-- [x] Fix syntax errors in `main.mjs`
-- [x] Add `package.json` with `express` dependency
-- [x] Wire `App.executeFlow()` to call `run_operations`
-- [x] Fix `run_operations` signature to accept and thread `initialEnv`
-- [x] Fix `ScriptOperation` to use ES module `import` instead of `require`
+### Performance
+- [ ] Tool lists are visible & unique by authorization & collation index. Hash this for a (in memory? filesystem?) cached list and throttle rechecks to a configured # of seconds
+- [ ] Earlier authorization noise rejection. Expose abusive ips to the host for watching/blocking
+- [ ] Per-tool timeout and resource limits for script operations.
 
-### v0.2 — Complete core operations
-- [x] Implement `FetchRequest` operation (outbound HTTP with configurable method, headers, body)
-- [x] Decide on and document the full operation config schema
-- [x] Return a clean, predictable response shape from `POST /mcp/:tool_collation`
-
-### v0.3 — MCP protocol layer
-- [x] Add MCP tool-listing endpoint (`tools/list` on `POST /mcp/:tool_collation`)
-- [x] Map each loaded flow to an MCP `tool` descriptor (name, description, inputSchema)
-- [x] Validate incoming tool call arguments against the declared input schema
-- [x] Return MCP-conformant `content` blocks from tool calls
-
-### v0.4 — Reliability & developer experience
-- [x] Add unit tests for `run_operations` and each operation type
-- [ ] Add integration test for the full HTTP → flow → response path
-- [ ] Structured logging (request ID, flow name, per-step timing)
-- [ ] Graceful shutdown
-
-### v0.5 — Tool management
-- [ ] Hot-reload flows without restarting the server
-- [ ] Support additional tool stores beyond Directus (file-based YAML/JSON as a fallback)
-- [ ] Per-tool timeout and resource limits for script operations
+### Dev Ease
+- [ ] create a POST /initialize handler which checks for needed collections in directus and creates/updates them if needed
+- [ ] add a default tool_collation "default" with tools [create_tool, add_operation, edit_tool, edit_operation, list_operation_types]
+- [ ] Directus permissions for CRUD on tools / operations should be essentially "owned by this user"
 
 ---
 
