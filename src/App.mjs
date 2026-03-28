@@ -424,7 +424,7 @@ export class App {
       }
 
       const bearerToken = extractBearerToken(req);
-      if (!bearerToken && method !== 'initialize') {
+      if ( !bearerToken ) {
         return res.status(401).json({ error: 'Missing or invalid Authorization header' });
       }
 
