@@ -1,3 +1,11 @@
+import {ScriptOperation} from '../operations/ScriptOperation.mjs';
+import {FetchRequest} from '../operations/FetchRequest.mjs';
+
+let operationTypes = {
+  'run_script':ScriptOperation,
+  'fetch_request':FetchRequest
+}
+
 export async function run_operations(operations, start_slug){
   // 1. Build operation index by slug
 const opMap = {};
