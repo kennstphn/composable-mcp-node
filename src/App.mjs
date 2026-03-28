@@ -1,6 +1,9 @@
 import express from 'express';
 import Ajv from 'ajv';
 import { run_operations } from './functions/run_operations.mjs';
+import { initializeSchema } from './directus/schema.mjs';
+import { seedDefaultTools } from './directus/default_tools.mjs';
+import { setupPermissions } from './directus/permissions.mjs';
 
 const ajv = new Ajv({ allErrors: true, coerceTypes: false });
 
@@ -79,6 +82,28 @@ export class App {
       });
     });
 
+    // Initialize — create Directus collections, seed default tools, set up permissions
+    this.app.post('/initialize', async (req, res) => {
+      const bearerToken = extractBearerToken(req);
+      if (!bearerToken) {
+        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+      }
+
+      const results = {};
+      try {
+        results.schema      = await initializeSchema(this.DIRECTUS_BASE_URL, bearerToken);
+        results.defaultTools = await seedDefaultTools(this.DIRECTUS_BASE_URL, bearerToken);
+        results.permissions  = await setupPermissions(this.DIRECTUS_BASE_URL, bearerToken);
+        return res.json({ ok: true, ...results });
+      } catch (err) {
+        return res.status(err.status || 500).json({
+          ok: false,
+          error: err.message,
+          ...results,
+        });
+      }
+    });
+
     // MCP endpoint — per-request Directus fetch using the caller's Bearer token
     this.app.post('/mcp/:tool_collation', async (req, res) => {
       const bearerToken = extractBearerToken(req);
@@ -145,6 +170,7 @@ export class App {
             PORT: this.PORT,
             DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
             NODE_ENV: this.NODE_ENV,
+            DIRECTUS_TOKEN: bearerToken,
           });
 
           const result = await this.executeFlow(tool, args || {}, env);
@@ -241,6 +267,7 @@ export class App {
           PORT: this.PORT,
           DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
           NODE_ENV: this.NODE_ENV,
+          DIRECTUS_TOKEN: bearerToken,
         });
 
         const result = await this.executeFlow(tool, inputData, env);
@@ -277,6 +304,7 @@ export class App {
       this._server = this.app.listen(this.PORT, () => {
         console.log(`🚀 MCP Server running on http://localhost:${this.PORT}`);
         console.log(`   Health:       GET  /health`);
+        console.log(`   Initialize:   POST /initialize`);
         console.log(`   MCP:          POST /mcp/{tool_collation}`);
         console.log(`   REST tools:   GET  /rest/{tool_collation}`);
         console.log(`   REST trigger: POST /rest/events/{tool_collation}/{tool_name}`);

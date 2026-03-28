@@ -466,4 +466,158 @@ describe('App', () => {
       );
     });
   });
+
+  // ─── POST /initialize ─────────────────────────────────────────────────────
+
+  describe('POST /initialize', () => {
+    let app, base;
+    before(async () => { app = makeApp(); base = await startApp(app); });
+    after(() => app.close());
+
+    it('returns 401 when Authorization header is missing', async () => {
+      const res = await fetch(`${base}/initialize`, { method: 'POST' });
+      assert.equal(res.status, 401);
+      const body = await res.json();
+      assert.ok(body.error);
+    });
+
+    it('returns ok:true and action summaries on success', async () => {
+      // Stub all Directus schema / items / users endpoints
+      const orig = mockDirectusFetch((url) => {
+        // collections check → 404 (not found) so they will be created
+        if (/\/collections\//.test(url)) {
+          return { ok: false, status: 404, json: async () => ({ errors: [] }) };
+        }
+        // collection creation → 200
+        if (/\/collections$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        }
+        // relation check → 404, creation → 200
+        if (/\/relations\//.test(url)) {
+          return { ok: false, status: 404, json: async () => ({ errors: [] }) };
+        }
+        if (/\/relations$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        }
+        // tools list for default seeding → empty
+        if (/\/items\/tools/.test(url) && !url.includes('filter')) {
+          return { ok: true, status: 200, json: async () => ({ data: [] }) };
+        }
+        if (/\/items\/tools/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: [] }) };
+        }
+        // tool creation → return a tool with an id
+        if (/\/items\/tools$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: { id: 1 } }) };
+        }
+        // operation creation → 200
+        if (/\/items\/operations$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: { id: 1 } }) };
+        }
+        // users/me → return a role
+        if (/\/users\/me/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: { role: 'role-uuid-123' } }) };
+        }
+        // permissions list → empty
+        if (/\/permissions/.test(url) && !url.includes('POST')) {
+          return { ok: true, status: 200, json: async () => ({ data: [] }) };
+        }
+        // permissions creation → 200
+        if (/\/permissions$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: { id: 1 } }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ data: {} }) };
+      });
+
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer init-token' },
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.ok, true);
+        assert.ok(body.schema);
+        assert.ok(body.defaultTools);
+        assert.ok(body.permissions);
+        assert.ok(Array.isArray(body.schema.actions));
+        assert.ok(Array.isArray(body.defaultTools.actions));
+        assert.ok(Array.isArray(body.permissions.actions));
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('returns 500 and ok:false when Directus schema creation fails', async () => {
+      const orig = mockDirectusFetch((url) => {
+        // All Directus calls fail
+        return { ok: false, status: 500, json: async () => ({ errors: [{ message: 'db error' }] }) };
+      });
+
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer bad-token' },
+        });
+        assert.equal(res.status, 500);
+        const body = await res.json();
+        assert.equal(body.ok, false);
+        assert.ok(body.error);
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+  });
+
+  // ─── DIRECTUS_TOKEN in $env ───────────────────────────────────────────────
+
+  describe('bearer token is available to tool operations via $env.DIRECTUS_TOKEN', () => {
+    let app, base;
+    before(async () => { app = makeApp(); base = await startApp(app); });
+    after(() => app.close());
+
+    it('exposes DIRECTUS_TOKEN in $env for MCP tool calls', async () => {
+      let capturedEnv;
+      const TOKEN_TOOL = {
+        slug: 'read-token',
+        name: 'Read Token',
+        description: 'Returns the token from $env',
+        inputSchema: null,
+        start_slug: 'run',
+        operations: [
+          {
+            slug: 'run',
+            type: 'run_script',
+            config: {
+              code: 'module.exports = async function(data) { return data.$env.DIRECTUS_TOKEN; };',
+            },
+            resolve: null,
+            reject: null,
+          },
+        ],
+      };
+
+      const orig = mockDirectusFetch(() => directusResponse([TOKEN_TOOL]));
+      try {
+        const res = await fetch(`${base}/mcp/my-collation`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer user-bearer-token',
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: 'read-token', arguments: {} },
+          }),
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.result.content[0].text, 'user-bearer-token');
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+  });
 });
