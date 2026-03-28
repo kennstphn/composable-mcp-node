@@ -485,6 +485,10 @@ describe('App', () => {
       // Stub all Directus schema / items / users endpoints
       const orig = mockDirectusFetch((url, options) => {
         const method = (options?.method || 'GET').toUpperCase();
+        // GET /collections list (checkInitializationState pre-check) → empty, so state = needed
+        if (/\/collections$/.test(url) && method === 'GET') {
+          return { ok: true, status: 200, json: async () => ({ data: [] }) };
+        }
         // collections check → 404 (not found) so they will be created
         if (/\/collections\//.test(url)) {
           return { ok: false, status: 404, json: async () => ({ errors: [] }) };
@@ -562,6 +566,40 @@ describe('App', () => {
         const body = await res.json();
         assert.equal(body.ok, false);
         assert.ok(body.error);
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('returns 409 and ok:false when migration is needed', async () => {
+      const orig = mockDirectusFetch((url, options) => {
+        const method = (options?.method || 'GET').toUpperCase();
+        // Both collections exist
+        if (/\/collections$/.test(url) && method === 'GET') {
+          return { ok: true, status: 200, json: async () => ({ data: [{ collection: 'tools' }, { collection: 'operations' }] }) };
+        }
+        // Only 'id' field present — all other fields are missing
+        if (/\/fields\//.test(url) && method === 'GET') {
+          return { ok: true, status: 200, json: async () => ({ data: [{ field: 'id' }] }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ data: {} }) };
+      });
+
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer init-token' },
+        });
+        assert.equal(res.status, 409);
+        const body = await res.json();
+        assert.equal(body.ok, false);
+        assert.ok(body.error.includes('not supported'));
+        assert.equal(body.state, 'migration_needed');
+        assert.ok(body.details);
+        assert.ok(Array.isArray(body.details.missingToolFields));
+        assert.ok(body.details.missingToolFields.length > 0);
+        assert.ok(Array.isArray(body.details.missingOpsFields));
+        assert.ok(body.details.missingOpsFields.length > 0);
       } finally {
         restoreGlobalFetch(orig);
       }
@@ -699,7 +737,7 @@ describe('App', () => {
       }
     });
 
-    it('returns state:migration_needed when collections exist but fields are missing', async () => {
+    it('returns state:migration_needed with details when collections exist but fields are missing', async () => {
       // Only return a subset of the expected fields (missing several)
       const orig = mockDirectusFetch((url) => {
         if (/\/collections$/.test(url)) {
@@ -718,6 +756,11 @@ describe('App', () => {
         assert.equal(res.status, 200);
         const body = await res.json();
         assert.equal(body.state, 'migration_needed');
+        assert.ok(body.details);
+        assert.ok(Array.isArray(body.details.missingToolFields));
+        assert.ok(body.details.missingToolFields.length > 0);
+        assert.ok(Array.isArray(body.details.missingOpsFields));
+        assert.ok(body.details.missingOpsFields.length > 0);
       } finally {
         restoreGlobalFetch(orig);
       }

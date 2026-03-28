@@ -57,9 +57,9 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 - **MCP response format** — `POST /mcp/:tool_collation` returns `{ content: [{ type: "text", text: "..." }] }`
 - **Landing page** — `GET /` serves a dark-themed HTML page with a link to the Directus admin, an init-state badge, and a token form for running `POST /initialize` without leaving the browser
 - **Initialization state check** — `GET /initialize` probes Directus and returns one of four states (see below); no auth required for the 404-path, 401/403 is passed through
-- **Bootstrap endpoint** — `POST /initialize` creates Directus schema, seeds default tools, and sets up permissions in one call
+- **Bootstrap endpoint** — `POST /initialize` creates Directus schema, seeds default tools, and sets up permissions in one call; blocked with `409` when state is `migration_needed` (migration is not supported)
 - **Per-user permissions** — CRUD on `tools` and `operations` scoped to the item owner (`user_created = $CURRENT_USER`)
-- **Unit tests** — 65 tests across `run_operations`, `ScriptOperation`, `FetchRequest`, and `App`
+- **Unit tests** — 68 tests across `run_operations`, `ScriptOperation`, `FetchRequest`, and `App`
 
 ---
 
@@ -72,7 +72,7 @@ main.mjs
        ├─ GET  /                    → HTML landing page
        ├─ GET  /health
        ├─ GET  /initialize          → checkInitializationState() → src/directus/schema.mjs
-       ├─ POST /initialize
+       ├─ POST /initialize          → checkInitializationState() (blocks 409 if migration_needed)
        │    ├─ initializeSchema()    → src/directus/schema.mjs
        │    ├─ seedDefaultTools()    → src/directus/default_tools.mjs
        │    └─ setupPermissions()    → src/directus/permissions.mjs
@@ -144,13 +144,15 @@ Send a `Bearer` token in the `Authorization` header to probe the current state o
 curl http://localhost:8787/initialize \
   -H 'Authorization: Bearer <directus-token>'
 # → { "state": "needed" | "in_progress" | "migration_needed" | "complete" }
+# When state is migration_needed, a details object is also included:
+# → { "state": "migration_needed", "details": { "missingToolFields": [...], "missingOpsFields": [...] } }
 ```
 
 | State | Meaning |
 |-------|---------|
 | `needed` | Neither the `tools` nor the `operations` collection exists — fresh installation |
 | `in_progress` | Collections exist but initialization is incomplete (missing relation or default tools) |
-| `migration_needed` | Collections exist but one or more expected fields are absent (app was updated) — run `POST /initialize` to add them |
+| `migration_needed` | Collections exist but one or more expected fields are absent (app was updated) — **migration is not supported**; resolve the schema differences manually using the field names in `details` |
 | `complete` | All collections, fields, relations, and default tools are in place |
 
 When no token is provided the endpoint returns `{ "state": "needed" }` without contacting Directus.
@@ -164,8 +166,8 @@ Navigating to the server root in a browser shows a setup dashboard:
 ![Landing page screenshot](https://github.com/user-attachments/assets/c7489934-2f84-4c45-bc88-829671b56430)
 
 - **Open Directus Admin ↗** — a direct link to `DIRECTUS_BASE_URL/admin/`
-- **Check Status** — calls `GET /initialize` with the entered token and updates the badge
-- **Initialize** — calls `POST /initialize`; the button is hidden once status is `complete`
+- **Check Status** — calls `GET /initialize` with the entered token and updates the badge; when `migration_needed`, shows details about which fields are missing
+- **Initialize** — calls `POST /initialize`; hidden once status is `complete` or `migration_needed`
 
 ---
 
