@@ -238,7 +238,7 @@ function buildLandingPage(directusBaseUrl) {
               lines.push('Missing operations fields: ' + body.details.missingOpsFields.join(', '));
             }
           }
-          setResult(lines.join('\n'), 'error');
+          setResult(lines.join('\\n'), 'error');
         } else {
           setResult('', '');
         }
@@ -390,6 +390,26 @@ export class App {
       }
 
       const { jsonrpc, id, method, params } = req.body || {};
+
+      if (method === 'initialize') {
+        return res.json({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: {
+                list: true,
+                call: true,
+              },
+            },
+            serverInfo: {
+              name: 'composable-mcp',
+              version: '0.1.0',
+            },
+          },
+        });
+      }
 
       if (method === 'tools/list') {
         return res.json({
