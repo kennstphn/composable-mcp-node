@@ -600,8 +600,8 @@ describe('App', () => {
 
     it('returns state:in_progress when only one collection exists', async () => {
       const orig = mockDirectusFetch((url) => {
-        if (/\/collections\/tools/.test(url)) {
-          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        if (/\/collections$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: [{ collection: 'tools' }] }) };
         }
         return { ok: false, status: 404, json: async () => ({ errors: [] }) };
       });
@@ -629,8 +629,8 @@ describe('App', () => {
 
       const orig = mockDirectusFetch((url, options) => {
         const method = (options?.method || 'GET').toUpperCase();
-        if (/\/collections\/(tools|operations)/.test(url)) {
-          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        if (/\/collections$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: [{ collection: 'tools' }, { collection: 'operations' }] }) };
         }
         if (/\/fields\/tools/.test(url)) {
           return { ok: true, status: 200, json: async () => ({ data: TOOL_FIELDS }) };
@@ -670,8 +670,8 @@ describe('App', () => {
 
       const orig = mockDirectusFetch((url, options) => {
         const method = (options?.method || 'GET').toUpperCase();
-        if (/\/collections\/(tools|operations)/.test(url)) {
-          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        if (/\/collections$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: [{ collection: 'tools' }, { collection: 'operations' }] }) };
         }
         if (/\/fields\/tools/.test(url)) {
           return { ok: true, status: 200, json: async () => ({ data: TOOL_FIELDS }) };
@@ -702,8 +702,8 @@ describe('App', () => {
     it('returns state:migration_needed when collections exist but fields are missing', async () => {
       // Only return a subset of the expected fields (missing several)
       const orig = mockDirectusFetch((url) => {
-        if (/\/collections\/(tools|operations)/.test(url)) {
-          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        if (/\/collections$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: [{ collection: 'tools' }, { collection: 'operations' }] }) };
         }
         if (/\/fields\//.test(url)) {
           // Return only 'id' — everything else is missing
@@ -734,8 +734,8 @@ describe('App', () => {
       ].map(field => ({ field }));
 
       const orig = mockDirectusFetch((url) => {
-        if (/\/collections\/(tools|operations)/.test(url)) {
-          return { ok: true, status: 200, json: async () => ({ data: {} }) };
+        if (/\/collections$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: [{ collection: 'tools' }, { collection: 'operations' }] }) };
         }
         if (/\/fields\/tools/.test(url)) {
           return { ok: true, status: 200, json: async () => ({ data: TOOL_FIELDS }) };
@@ -772,6 +772,50 @@ describe('App', () => {
         const body = await res.json();
         assert.equal(body.state, 'needed');
         assert.ok(body.error);
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('returns 403 and state:needed when Directus rejects the token with 403', async () => {
+      const orig = mockDirectusFetch(() => ({
+        ok: false, status: 403, json: async () => ({ errors: [] }),
+      }));
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          headers: { 'Authorization': 'Bearer bad-token' },
+        });
+        assert.equal(res.status, 403);
+        const body = await res.json();
+        assert.equal(body.state, 'needed');
+        assert.ok(body.error);
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('returns state:needed (not a 403 error) when collections do not exist yet', async () => {
+      // Directus returns 403 for /collections/<name> when that collection does not
+      // exist yet — even for a fully-authorised token.  The /collections list
+      // endpoint correctly returns 200 with an empty array in that situation, so
+      // we must use it to distinguish "not initialised" from "auth failure".
+      const orig = mockDirectusFetch((url) => {
+        if (/\/collections$/.test(url)) {
+          return { ok: true, status: 200, json: async () => ({ data: [] }) };
+        }
+        // Individual collection endpoints return 403 (Directus quirk)
+        if (/\/collections\//.test(url)) {
+          return { ok: false, status: 403, json: async () => ({ errors: [] }) };
+        }
+        return { ok: false, status: 404, json: async () => ({ errors: [] }) };
+      });
+      try {
+        const res = await fetch(`${base}/initialize`, {
+          headers: { 'Authorization': 'Bearer valid-token' },
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.state, 'needed');
       } finally {
         restoreGlobalFetch(orig);
       }

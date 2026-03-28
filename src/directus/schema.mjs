@@ -205,7 +205,9 @@ async function directusFetch(baseUrl, token, path, method = 'GET', body = undefi
 
 async function collectionExists(baseUrl, token, collectionName) {
   const { status } = await directusFetch(baseUrl, token, `/collections/${collectionName}`);
-  return status !== 404;
+  // Directus returns 403 for collections that don't exist yet (not just 404),
+  // so treat both as "not found" rather than assuming an auth failure.
+  return status !== 404 && status !== 403;
 }
 
 export async function ensureCollection(baseUrl, token, schema) {
@@ -276,21 +278,21 @@ export async function ensureRelation(baseUrl, token, relation) {
  */
 export async function checkInitializationState(baseUrl, token) {
   // 1. Check whether the two core collections exist.
-  const toolsRes = await directusFetch(baseUrl, token, '/collections/tools');
-  if (toolsRes.status === 401 || toolsRes.status === 403) {
+  //    GET /collections/{name} returns 403 when the collection doesn't exist yet
+  //    (a Directus quirk), even for fully-authorised tokens.  Fetching the full
+  //    list instead gives a reliable 401/403 only on a genuine auth failure, and
+  //    lets us derive existence from the returned data.
+  const collectionsRes = await directusFetch(baseUrl, token, '/collections');
+  if (collectionsRes.status === 401 || collectionsRes.status === 403) {
     const err = new Error('Directus authorization failed');
-    err.status = toolsRes.status;
+    err.status = collectionsRes.status;
     throw err;
   }
-  const toolsExists = toolsRes.status !== 404;
-
-  const opsRes = await directusFetch(baseUrl, token, '/collections/operations');
-  if (opsRes.status === 401 || opsRes.status === 403) {
-    const err = new Error('Directus authorization failed');
-    err.status = opsRes.status;
-    throw err;
-  }
-  const opsExists = opsRes.status !== 404;
+  const existingCollections = new Set(
+    (collectionsRes.data?.data || []).map(c => c.collection),
+  );
+  const toolsExists = existingCollections.has('tools');
+  const opsExists = existingCollections.has('operations');
 
   if (!toolsExists && !opsExists) return 'needed';
   if (!toolsExists || !opsExists) return 'in_progress';
