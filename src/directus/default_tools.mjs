@@ -389,6 +389,160 @@ export const EDIT_FETCH_REQUEST_OPERATION_TOOL = {
   ],
 };
 
+// ─── list_collations ──────────────────────────────────────────────────────────
+
+export const LIST_COLLATIONS_TOOL = {
+  slug: 'list_collations',
+  name: 'List Collations',
+  description: 'Returns the distinct collation names (namespaces) that have tools stored in Directus.',
+  inputSchema: { type: 'object', properties: {} },
+  start_slug: 'fetch_collations',
+  operations: [
+    {
+      slug: 'fetch_collations',
+      type: 'fetch_request',
+      config: {
+        url: '{{DIRECTUS_BASE_URL}}/items/tools?groupBy[]=tool_collation&fields=tool_collation',
+        method: 'GET',
+        headers: {
+          'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
+          'Content-Type': 'application/json',
+        },
+      },
+      resolve: 'extract_names',
+      reject: null,
+    },
+    {
+      // Directus returns { data: [{ tool_collation: "pco" }, ...] }
+      // — unwrap to a plain array of name strings.
+      slug: 'extract_names',
+      type: 'run_script',
+      config: {
+        code: [
+          'module.exports = async function(data) {',
+          '  const rows = (data.fetch_collations && data.fetch_collations.data) || [];',
+          '  return rows.map(function(r) { return r.tool_collation; }).filter(Boolean);',
+          '};',
+        ].join('\n'),
+      },
+      resolve: null,
+      reject: null,
+    },
+  ],
+};
+
+// ─── list_composed_tools ──────────────────────────────────────────────────────
+
+export const LIST_COMPOSED_TOOLS_TOOL = {
+  slug: 'list_composed_tools',
+  name: 'List Composed Tools',
+  description: 'Returns the tools stored in Directus for the specified collation.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tool_collation: { type: 'string', description: 'The collation (namespace) to list tools for' },
+    },
+    required: ['tool_collation'],
+  },
+  start_slug: 'fetch_tools',
+  operations: [
+    {
+      slug: 'fetch_tools',
+      type: 'fetch_request',
+      config: {
+        url: '{{DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{tool_collation}}&fields=id,slug,name,description,tool_collation',
+        method: 'GET',
+        headers: {
+          'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
+          'Content-Type': 'application/json',
+        },
+      },
+      resolve: null,
+      reject: null,
+    },
+  ],
+};
+
+// ─── run_composed_tool ────────────────────────────────────────────────────────
+// NOTE: this tool is intercepted and handled directly in App.mjs before the
+// normal executeFlow path.  The single stub operation below is never executed;
+// it exists only so that tools/list can return a proper tool descriptor.
+
+export const RUN_COMPOSED_TOOL_TOOL = {
+  slug: 'run_composed_tool',
+  name: 'Run Composed Tool',
+  description: 'Fetches a tool stored in Directus and executes it with the supplied arguments.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tool_collation: { type: 'string', description: 'The collation (namespace) the tool belongs to' },
+      tool_name:      { type: 'string', description: 'The slug of the tool to run' },
+      arguments:      { type: 'object', description: 'Input arguments to pass to the tool', additionalProperties: true },
+    },
+    required: ['tool_collation', 'tool_name'],
+  },
+  start_slug: 'run',
+  operations: [
+    {
+      // Stub — run_composed_tool is handled specially in App.mjs before this is reached.
+      slug: 'run',
+      type: 'run_script',
+      config: { code: 'module.exports = async function() { return null; };' },
+      resolve: null,
+      reject: null,
+    },
+  ],
+};
+
+// ─── delete_composed_tool ─────────────────────────────────────────────────────
+
+export const DELETE_COMPOSED_TOOL_TOOL = {
+  slug: 'delete_composed_tool',
+  name: 'Delete Composed Tool',
+  description: 'Permanently deletes a tool from Directus. Requires explicit confirmation via the confirm field.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tool_id: { type: 'integer', description: 'The numeric ID of the tool to delete' },
+      confirm: { type: 'boolean', description: 'Must be true to confirm permanent deletion' },
+    },
+    required: ['tool_id', 'confirm'],
+  },
+  start_slug: 'check_confirmation',
+  operations: [
+    {
+      // Guard: throw (and stop) when the caller has not confirmed the deletion.
+      slug: 'check_confirmation',
+      type: 'run_script',
+      config: {
+        code: [
+          'module.exports = async function(data) {',
+          '  if (data.confirm !== true) {',
+          '    throw new Error("Deletion not confirmed. Call this tool again with confirm: true to permanently delete tool " + data.tool_id + ".");',
+          '  }',
+          '  return data.tool_id;',
+          '};',
+        ].join('\n'),
+      },
+      resolve: 'delete_tool',
+      reject: null,
+    },
+    {
+      slug: 'delete_tool',
+      type: 'fetch_request',
+      config: {
+        url: '{{DIRECTUS_BASE_URL}}/items/tools/{{tool_id}}',
+        method: 'DELETE',
+        headers: {
+          'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
+        },
+      },
+      resolve: null,
+      reject: null,
+    },
+  ],
+};
+
 // ─── All default tools ────────────────────────────────────────────────────────
 
 export const DEFAULT_TOOLS = [
@@ -399,4 +553,8 @@ export const DEFAULT_TOOLS = [
   EDIT_TOOL_TOOL,
   EDIT_RUN_SCRIPT_OPERATION_TOOL,
   EDIT_FETCH_REQUEST_OPERATION_TOOL,
+  LIST_COLLATIONS_TOOL,
+  LIST_COMPOSED_TOOLS_TOOL,
+  RUN_COMPOSED_TOOL_TOOL,
+  DELETE_COMPOSED_TOOL_TOOL,
 ];

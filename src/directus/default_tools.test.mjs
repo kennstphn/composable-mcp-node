@@ -6,6 +6,10 @@ import {
   ADD_FETCH_REQUEST_OPERATION_TOOL,
   EDIT_RUN_SCRIPT_OPERATION_TOOL,
   EDIT_FETCH_REQUEST_OPERATION_TOOL,
+  LIST_COLLATIONS_TOOL,
+  LIST_COMPOSED_TOOLS_TOOL,
+  RUN_COMPOSED_TOOL_TOOL,
+  DELETE_COMPOSED_TOOL_TOOL,
 } from './default_tools.mjs';
 import { ScriptOperation } from '../operations/ScriptOperation.mjs';
 
@@ -31,16 +35,20 @@ async function runEmbeddedScript(operation, inputData) {
 // ─── DEFAULT_TOOLS array ──────────────────────────────────────────────────────
 
 describe('DEFAULT_TOOLS', () => {
-  it('contains seven tools', () => {
-    assert.equal(DEFAULT_TOOLS.length, 7);
+  it('contains eleven tools', () => {
+    assert.equal(DEFAULT_TOOLS.length, 11);
   });
 
-  it('includes the four new operation tools but not the old generic ones', () => {
+  it('includes all four operation-editing tools and the four new composed-tool management tools', () => {
     const slugs = DEFAULT_TOOLS.map(t => t.slug);
     assert.ok(slugs.includes('add_run_script_operation'));
     assert.ok(slugs.includes('add_fetch_request_operation'));
     assert.ok(slugs.includes('edit_run_script_operation'));
     assert.ok(slugs.includes('edit_fetch_request_operation'));
+    assert.ok(slugs.includes('list_collations'));
+    assert.ok(slugs.includes('list_composed_tools'));
+    assert.ok(slugs.includes('run_composed_tool'));
+    assert.ok(slugs.includes('delete_composed_tool'));
     assert.ok(!slugs.includes('add_operation'), 'old add_operation should be removed');
     assert.ok(!slugs.includes('edit_operation'), 'old edit_operation should be removed');
   });
@@ -343,5 +351,153 @@ describe('EDIT_FETCH_REQUEST_OPERATION_TOOL', () => {
     });
     assert.deepEqual(result, { slug: 'rename_only', resolve: 'next' });
     assert.ok(!('config' in result), 'config should not be set when no config fields supplied');
+  });
+});
+
+// ─── list_collations ──────────────────────────────────────────────────────────
+
+describe('LIST_COLLATIONS_TOOL', () => {
+  it('has slug list_collations', () => {
+    assert.equal(LIST_COLLATIONS_TOOL.slug, 'list_collations');
+  });
+
+  it('has no required inputs', () => {
+    assert.ok(!LIST_COLLATIONS_TOOL.inputSchema.required || LIST_COLLATIONS_TOOL.inputSchema.required.length === 0);
+  });
+
+  it('has two operations: fetch_collations (fetch_request) then extract_names (run_script)', () => {
+    assert.equal(LIST_COLLATIONS_TOOL.operations.length, 2);
+    assert.equal(LIST_COLLATIONS_TOOL.operations[0].slug, 'fetch_collations');
+    assert.equal(LIST_COLLATIONS_TOOL.operations[0].type, 'fetch_request');
+    assert.equal(LIST_COLLATIONS_TOOL.operations[1].slug, 'extract_names');
+    assert.equal(LIST_COLLATIONS_TOOL.operations[1].type, 'run_script');
+  });
+
+  it('fetch_collations URL uses groupBy[]=tool_collation', () => {
+    const url = LIST_COLLATIONS_TOOL.operations[0].config.url;
+    assert.ok(url.includes('groupBy'), 'URL should use groupBy');
+    assert.ok(url.includes('tool_collation'));
+  });
+
+  it('extract_names script unwraps the Directus data array into a flat string array', async () => {
+    const extractOp = LIST_COLLATIONS_TOOL.operations[1];
+    const result = await runEmbeddedScript(extractOp, {
+      fetch_collations: { data: [{ tool_collation: 'pco' }, { tool_collation: 'test' }] },
+    });
+    assert.deepEqual(result, ['pco', 'test']);
+  });
+
+  it('extract_names script returns an empty array when data is empty', async () => {
+    const extractOp = LIST_COLLATIONS_TOOL.operations[1];
+    const result = await runEmbeddedScript(extractOp, {
+      fetch_collations: { data: [] },
+    });
+    assert.deepEqual(result, []);
+  });
+
+  it('extract_names script filters out falsy tool_collation values', async () => {
+    const extractOp = LIST_COLLATIONS_TOOL.operations[1];
+    const result = await runEmbeddedScript(extractOp, {
+      fetch_collations: { data: [{ tool_collation: 'a' }, { tool_collation: null }, { tool_collation: 'b' }] },
+    });
+    assert.deepEqual(result, ['a', 'b']);
+  });
+});
+
+// ─── list_composed_tools ──────────────────────────────────────────────────────
+
+describe('LIST_COMPOSED_TOOLS_TOOL', () => {
+  it('has slug list_composed_tools', () => {
+    assert.equal(LIST_COMPOSED_TOOLS_TOOL.slug, 'list_composed_tools');
+  });
+
+  it('requires tool_collation', () => {
+    assert.deepEqual(LIST_COMPOSED_TOOLS_TOOL.inputSchema.required, ['tool_collation']);
+  });
+
+  it('has a single fetch_request operation', () => {
+    assert.equal(LIST_COMPOSED_TOOLS_TOOL.operations.length, 1);
+    assert.equal(LIST_COMPOSED_TOOLS_TOOL.operations[0].type, 'fetch_request');
+  });
+
+  it('fetch_request URL filters by tool_collation', () => {
+    const url = LIST_COMPOSED_TOOLS_TOOL.operations[0].config.url;
+    assert.ok(url.includes('{{tool_collation}}'), 'URL should interpolate tool_collation');
+    assert.ok(url.includes('filter'), 'URL should contain a filter');
+  });
+});
+
+// ─── run_composed_tool ────────────────────────────────────────────────────────
+
+describe('RUN_COMPOSED_TOOL_TOOL', () => {
+  it('has slug run_composed_tool', () => {
+    assert.equal(RUN_COMPOSED_TOOL_TOOL.slug, 'run_composed_tool');
+  });
+
+  it('requires tool_collation and tool_name', () => {
+    assert.deepEqual(RUN_COMPOSED_TOOL_TOOL.inputSchema.required, ['tool_collation', 'tool_name']);
+  });
+
+  it('inputSchema includes an arguments property for the tool inputs', () => {
+    assert.ok('arguments' in RUN_COMPOSED_TOOL_TOOL.inputSchema.properties);
+  });
+
+  it('has at least one operation (stub)', () => {
+    assert.ok(RUN_COMPOSED_TOOL_TOOL.operations.length > 0);
+  });
+});
+
+// ─── delete_composed_tool ─────────────────────────────────────────────────────
+
+describe('DELETE_COMPOSED_TOOL_TOOL', () => {
+  it('has slug delete_composed_tool', () => {
+    assert.equal(DELETE_COMPOSED_TOOL_TOOL.slug, 'delete_composed_tool');
+  });
+
+  it('requires tool_id and confirm', () => {
+    assert.deepEqual(DELETE_COMPOSED_TOOL_TOOL.inputSchema.required, ['tool_id', 'confirm']);
+  });
+
+  it('has two operations: check_confirmation (run_script) then delete_tool (fetch_request)', () => {
+    assert.equal(DELETE_COMPOSED_TOOL_TOOL.operations.length, 2);
+    assert.equal(DELETE_COMPOSED_TOOL_TOOL.operations[0].slug, 'check_confirmation');
+    assert.equal(DELETE_COMPOSED_TOOL_TOOL.operations[0].type, 'run_script');
+    assert.equal(DELETE_COMPOSED_TOOL_TOOL.operations[1].slug, 'delete_tool');
+    assert.equal(DELETE_COMPOSED_TOOL_TOOL.operations[1].type, 'fetch_request');
+  });
+
+  it('check_confirmation resolves to delete_tool and has null reject', () => {
+    const checkOp = DELETE_COMPOSED_TOOL_TOOL.operations[0];
+    assert.equal(checkOp.resolve, 'delete_tool');
+    assert.equal(checkOp.reject, null);
+  });
+
+  it('check_confirmation script throws when confirm is false', async () => {
+    const checkOp = DELETE_COMPOSED_TOOL_TOOL.operations[0];
+    await assert.rejects(
+      () => runEmbeddedScript(checkOp, { tool_id: 5, confirm: false }),
+      /Script failed/,
+    );
+  });
+
+  it('check_confirmation script throws when confirm is absent', async () => {
+    const checkOp = DELETE_COMPOSED_TOOL_TOOL.operations[0];
+    await assert.rejects(
+      () => runEmbeddedScript(checkOp, { tool_id: 5 }),
+      /Script failed/,
+    );
+  });
+
+  it('check_confirmation script returns the tool_id when confirm is true', async () => {
+    const checkOp = DELETE_COMPOSED_TOOL_TOOL.operations[0];
+    const result = await runEmbeddedScript(checkOp, { tool_id: 5, confirm: true });
+    assert.equal(result, 5);
+  });
+
+  it('delete_tool uses DELETE method and interpolates tool_id in the URL', () => {
+    const deleteOp = DELETE_COMPOSED_TOOL_TOOL.operations[1];
+    assert.equal(deleteOp.config.method, 'DELETE');
+    assert.ok(deleteOp.config.url.includes('{{tool_id}}'));
+    assert.ok(deleteOp.config.url.includes('{{DIRECTUS_BASE_URL}}'));
   });
 });
