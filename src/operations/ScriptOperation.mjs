@@ -3,6 +3,13 @@ import vm from 'node:vm';
 export class ScriptOperation {
   constructor(config) {
     this.config = config; // { code: "the full user script code" }
+    if(typeof config === 'string'){
+        try{
+            this.config = JSON.parse(config);
+        }catch (err){
+            throw new Error("ScriptOperation: config string is not valid JSON");
+        }
+    }
   }
 
   async run(context) {
