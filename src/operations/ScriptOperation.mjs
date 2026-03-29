@@ -13,11 +13,11 @@ export class ScriptOperation {
   }
 
   async run(context) {
-    const { code } = this.config;
-
+    let { code } = this.config;
     if (!code) {
       throw new Error("ScriptOperation: 'code' property is required");
     }
+    code = code.replaceAll(/\\n/g, '\n'); // Allow users to write \n in JSON strings for newlines
 
     // Create the data object that gets passed to the user's function
     const data = {
