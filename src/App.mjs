@@ -615,7 +615,7 @@ export class App {
 
         try {
           const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
-          const result = await this.executeFlow(tool, {...args,$accountability});
+          const result = await this.executeFlow(tool, {$trigger:args,$accountability});
           const lastValue = result.$last;
           const text = typeof lastValue === 'string'
             ? lastValue
@@ -705,8 +705,8 @@ export class App {
       }
 
       try {
-        inputData.$accountability = await loadAccountability( bearerToken, this.DIRECTUS_BASE_URL );
-        const result = await this.executeFlow(tool, inputData);
+        let $accountability = await loadAccountability( bearerToken, this.DIRECTUS_BASE_URL );
+        const result = await this.executeFlow(tool, {$trigger:inputData,$accountability});
         const lastValue = result.$last;
         const text = typeof lastValue === 'string'
           ? lastValue
@@ -728,8 +728,8 @@ export class App {
   /**
    * Execute a flow using the iterative runtime
    */
-  async executeFlow(flow, inputData) {
-    return run_operations(flow.operations, flow.start_slug, inputData);
+  async executeFlow(flow, context) {
+    return run_operations(flow.operations, flow.start_slug, context);
   }
 
   async listen() {
