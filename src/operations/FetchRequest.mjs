@@ -67,6 +67,13 @@ function interpolateValue(value, context) {
 export class FetchRequest {
   constructor(config) {
     this.config = config;
+    if(typeof config === 'string'){
+      try{
+        this.config = JSON.parse(config);
+      }catch(e){
+        throw new Error("FetchRequest: config string is not valid JSON");
+      }
+    }
   }
 
   async run(context) {
