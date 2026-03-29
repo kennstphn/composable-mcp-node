@@ -447,6 +447,57 @@ export class App {
 
       if (method === 'tools/call') {
         const { name, arguments: args } = params || {};
+
+        // ── run_composed_tool: fetch tool from Directus and execute it ─────────
+        if (name === 'run_composed_tool') {
+          const { tool_collation, tool_name, arguments: toolArgs } = args || {};
+          if (!tool_collation || !tool_name) {
+            return res.json({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [{ type: 'text', text: 'tool_collation and tool_name are required' }],
+                isError: true,
+              },
+            });
+          }
+          try {
+            const collationTools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, bearerToken, tool_collation);
+            const composedTool = collationTools.find(t => (t.slug || t.name) === tool_name);
+            if (!composedTool) {
+              return res.json({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: `Tool "${tool_name}" not found in collation "${tool_collation}"` }],
+                  isError: true,
+                },
+              });
+            }
+            const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
+            const result = await this.executeFlow(composedTool, { $trigger: toolArgs || {}, $accountability });
+            const lastValue = result.$last;
+            const text = typeof lastValue === 'string'
+              ? lastValue
+              : JSON.stringify(lastValue, null, 2);
+            return res.json({
+              jsonrpc: '2.0',
+              id,
+              result: { content: [{ type: 'text', text }] },
+            });
+          } catch (err) {
+            console.error('run_composed_tool failed:', err);
+            return res.json({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [{ type: 'text', text: err.message }],
+                isError: true,
+              },
+            });
+          }
+        }
+
         const tool = DEFAULT_TOOLS.find(t => t.slug === name);
 
         if (!tool) {

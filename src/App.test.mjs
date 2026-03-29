@@ -67,7 +67,7 @@ function directusError(status) {
 function mockDirectusFetch(handler) {
   const origFetch = globalThis.fetch;
   globalThis.fetch = mock.fn(async (url, options) => {
-    if (url.includes('directus.test')) return handler(url, options);
+    if (String(url).includes('directus.test')) return handler(String(url), options);
     return origFetch(url, options);
   });
   return origFetch;
@@ -146,7 +146,7 @@ describe('App', () => {
       assert.equal(body.jsonrpc, '2.0');
       assert.equal(body.id, 1);
       assert.ok(Array.isArray(body.result.tools));
-      assert.equal(body.result.tools.length, 7);
+      assert.equal(body.result.tools.length, 11);
       const names = body.result.tools.map(t => t.name);
       assert.ok(names.includes('list_operation_types'));
       assert.ok(names.includes('create_tool'));
@@ -155,6 +155,10 @@ describe('App', () => {
       assert.ok(names.includes('edit_tool'));
       assert.ok(names.includes('edit_run_script_operation'));
       assert.ok(names.includes('edit_fetch_request_operation'));
+      assert.ok(names.includes('list_collations'));
+      assert.ok(names.includes('list_composed_tools'));
+      assert.ok(names.includes('run_composed_tool'));
+      assert.ok(names.includes('delete_composed_tool'));
     });
 
     it('executes list_operation_types and returns the two operation types', async () => {
@@ -262,6 +266,69 @@ describe('App', () => {
       const body = await res.json();
       assert.ok(body.result.protocolVersion);
       assert.ok(body.result.capabilities.tools);
+    });
+
+    // ── run_composed_tool ───────────────────────────────────────────────────
+
+    it('run_composed_tool fetches from Directus and executes the tool', async () => {
+      const orig = mockDirectusFetch((url) => {
+        if (url.includes('/users/me'))   return { ok: true, status: 200, json: async () => ({ data: {} }), headers: { get: () => 'application/json' } };
+        if (url.includes('/items/tools')) return { ok: true, status: 200, json: async () => ({ data: [SIMPLE_TOOL] }), headers: { get: () => 'application/json' } };
+        return { ok: true, status: 200, json: async () => ({ data: {} }), headers: { get: () => 'application/json' } };
+      });
+      try {
+        const res = await fetch(`${base}/mcp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-token' },
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 10, method: 'tools/call',
+            params: { name: 'run_composed_tool', arguments: { tool_collation: 'my-col', tool_name: 'greet' } },
+          }),
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.result.isError, undefined);
+        assert.equal(body.result.content[0].text, 'hello');
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('run_composed_tool returns isError when the named tool is not in the collation', async () => {
+      const orig = mockDirectusFetch((url) => {
+        if (url.includes('/items/tools')) return { ok: true, status: 200, json: async () => ({ data: [] }), headers: { get: () => 'application/json' } };
+        return { ok: true, status: 200, json: async () => ({ data: {} }), headers: { get: () => 'application/json' } };
+      });
+      try {
+        const res = await fetch(`${base}/mcp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-token' },
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 11, method: 'tools/call',
+            params: { name: 'run_composed_tool', arguments: { tool_collation: 'my-col', tool_name: 'missing' } },
+          }),
+        });
+        assert.equal(res.status, 200);
+        const body = await res.json();
+        assert.equal(body.result.isError, true);
+        assert.ok(body.result.content[0].text.includes('missing'));
+      } finally {
+        restoreGlobalFetch(orig);
+      }
+    });
+
+    it('run_composed_tool returns isError when tool_collation or tool_name is absent', async () => {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-token' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 12, method: 'tools/call',
+          params: { name: 'run_composed_tool', arguments: { tool_collation: 'my-col' } },
+        }),
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.result.isError, true);
     });
   });
 
