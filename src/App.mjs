@@ -60,6 +60,22 @@ function extractBearerToken(req) {
   return authHeader.slice(7);
 }
 
+async function loadAccountability(bearerToken, DIRECTUS_BASE_URL) {
+  let url = new URL('/users/me', DIRECTUS_BASE_URL);
+    url.searchParams.set('fields', '*,oauth.*');
+  const response = await fetch(url,{
+    headers:{
+      'Authorization': `Bearer ${bearerToken}`,
+      'Content-Type': 'application/json',
+    }
+  });
+
+  if(!response.ok){
+    throw new Error(`Failed to fetch user info: ${response.status}`);
+  }
+  return response.json();
+}
+
 /**
  * Generate the HTML landing page for a given Directus base URL.
  */
@@ -488,7 +504,8 @@ export class App {
             DIRECTUS_TOKEN: bearerToken,
           });
 
-          const result = await this.executeFlow(tool, args || {}, env);
+          const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
+          const result = await this.executeFlow(tool, {...args,$accountability});
           const lastValue = result.$last;
           const text = typeof lastValue === 'string'
             ? lastValue
@@ -578,14 +595,8 @@ export class App {
       }
 
       try {
-        const env = Object.freeze({
-          PORT: this.PORT,
-          DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
-          NODE_ENV: this.NODE_ENV,
-          DIRECTUS_TOKEN: bearerToken,
-        });
-
-        const result = await this.executeFlow(tool, inputData, env);
+        inputData.$accountability = await loadAccountability( bearerToken, this.DIRECTUS_BASE_URL );
+        const result = await this.executeFlow(tool, inputData);
         const lastValue = result.$last;
         const text = typeof lastValue === 'string'
           ? lastValue
@@ -607,11 +618,8 @@ export class App {
   /**
    * Execute a flow using the iterative runtime
    */
-  async executeFlow(flow, inputData = {}, env = {}) {
-    return run_operations(flow.operations, flow.start_slug, {
-      $env: env,
-      ...inputData,
-    });
+  async executeFlow(flow, inputData) {
+    return run_operations(flow.operations, flow.start_slug, inputData);
   }
 
   async listen() {
