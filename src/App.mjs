@@ -476,6 +476,10 @@ export class App {
             }
             const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
             const result = await this.executeFlow(composedTool, { $trigger: toolArgs || {}, $accountability });
+            let _meta = {operations:{}};
+            Object.keys(result).forEach(k => {
+              if(! k.startsWith('$')) _meta.operations[k] = result[k];
+            });
             const lastValue = result.$last;
             const text = typeof lastValue === 'string'
               ? lastValue
@@ -483,7 +487,7 @@ export class App {
             return res.json({
               jsonrpc: '2.0',
               id,
-              result: { content: [{ type: 'text', text }] },
+              result: { content: [{ type: 'text', text,_meta }] },
             });
           } catch (err) {
             console.error('run_composed_tool failed:', err);
