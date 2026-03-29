@@ -448,8 +448,8 @@ export class App {
       if (method === 'tools/call') {
         const { name, arguments: args } = params || {};
 
-        // ── run_composed_tool: fetch tool from Directus and execute it ─────────
-        if (name === 'run_composed_tool') {
+        // ── test_composed_tool: fetch tool from Directus and execute it ─────────
+        if (name === 'test_composed_tool') {
           const { tool_collation, tool_name, arguments: toolArgs } = args || {};
           if (!tool_collation || !tool_name) {
             return res.json({
@@ -475,22 +475,17 @@ export class App {
               });
             }
             const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
-            const result = await this.executeFlow(composedTool, { $trigger: toolArgs || {}, $accountability });
-            let _meta = {operations:{}};
-            Object.keys(result).forEach(k => {
-              if(! k.startsWith('$')) _meta.operations[k] = result[k];
-            });
-            const lastValue = result.$last;
-            const text = typeof lastValue === 'string'
-              ? lastValue
-              : JSON.stringify(lastValue, null, 2);
+            let result = await this.executeFlow(composedTool, { $trigger: toolArgs || {}, $accountability });
+            result.$last_slug = result.$last.slug; // expose last operation slug for better debugging of composed tools
+            delete(result.$last); // avoid redundancy in the main content
+
             return res.json({
               jsonrpc: '2.0',
               id,
-              result: { content: [{ type: 'text', text,_meta }] },
+              result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] },
             });
           } catch (err) {
-            console.error('run_composed_tool failed:', err);
+            console.error('test_composed_tool failed:', err);
             return res.json({
               jsonrpc: '2.0',
               id,

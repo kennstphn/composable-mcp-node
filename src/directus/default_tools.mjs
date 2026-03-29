@@ -465,14 +465,14 @@ export const LIST_COMPOSED_TOOLS_TOOL = {
   ],
 };
 
-// ─── run_composed_tool ────────────────────────────────────────────────────────
+// ─── test_composed_tool ────────────────────────────────────────────────────────
 // NOTE: this tool is intercepted and handled directly in App.mjs before the
 // normal executeFlow path.  The single stub operation below is never executed;
 // it exists only so that tools/list can return a proper tool descriptor.
 
-export const RUN_COMPOSED_TOOL_TOOL = {
-  slug: 'run_composed_tool',
-  name: 'Run Composed Tool',
+export const TEST_COMPOSED_TOOL_TOOL = {
+  slug: 'test_composed_tool',
+  name: 'Test Composed Tool',
   description: 'Fetches a tool stored in Directus and executes it with the supplied arguments.',
   inputSchema: {
     type: 'object',
@@ -486,7 +486,7 @@ export const RUN_COMPOSED_TOOL_TOOL = {
   start_slug: 'run',
   operations: [
     {
-      // Stub — run_composed_tool is handled specially in App.mjs before this is reached.
+      // Stub — test_composed_tool is handled specially in App.mjs before this is reached.
       slug: 'run',
       type: 'run_script',
       config: { code: 'module.exports = async function() { return null; };' },
@@ -557,6 +557,6 @@ export const DEFAULT_TOOLS = [
   EDIT_FETCH_REQUEST_OPERATION_TOOL,
   LIST_COLLATIONS_TOOL,
   LIST_COMPOSED_TOOLS_TOOL,
-  RUN_COMPOSED_TOOL_TOOL,
+  TEST_COMPOSED_TOOL_TOOL,
   DELETE_COMPOSED_TOOL_TOOL,
 ];

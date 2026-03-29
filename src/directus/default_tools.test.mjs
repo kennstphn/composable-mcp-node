@@ -8,7 +8,7 @@ import {
   EDIT_FETCH_REQUEST_OPERATION_TOOL,
   LIST_COLLATIONS_TOOL,
   LIST_COMPOSED_TOOLS_TOOL,
-  RUN_COMPOSED_TOOL_TOOL,
+  TEST_COMPOSED_TOOL_TOOL,
   DELETE_COMPOSED_TOOL_TOOL,
 } from './default_tools.mjs';
 import { ScriptOperation } from '../operations/ScriptOperation.mjs';
@@ -47,7 +47,7 @@ describe('DEFAULT_TOOLS', () => {
     assert.ok(slugs.includes('edit_fetch_request_operation'));
     assert.ok(slugs.includes('list_collations'));
     assert.ok(slugs.includes('list_composed_tools'));
-    assert.ok(slugs.includes('run_composed_tool'));
+    assert.ok(slugs.includes('test_composed_tool'));
     assert.ok(slugs.includes('delete_composed_tool'));
     assert.ok(!slugs.includes('add_operation'), 'old add_operation should be removed');
     assert.ok(!slugs.includes('edit_operation'), 'old edit_operation should be removed');
@@ -427,23 +427,23 @@ describe('LIST_COMPOSED_TOOLS_TOOL', () => {
   });
 });
 
-// ─── run_composed_tool ────────────────────────────────────────────────────────
+// ─── test_composed_tool ────────────────────────────────────────────────────────
 
-describe('RUN_COMPOSED_TOOL_TOOL', () => {
-  it('has slug run_composed_tool', () => {
-    assert.equal(RUN_COMPOSED_TOOL_TOOL.slug, 'run_composed_tool');
+describe('TEST_COMPOSED_TOOL_TOOL', () => {
+  it('has slug test_composed_tool', () => {
+    assert.equal(TEST_COMPOSED_TOOL_TOOL.slug, 'test_composed_tool');
   });
 
   it('requires tool_collation and tool_name', () => {
-    assert.deepEqual(RUN_COMPOSED_TOOL_TOOL.inputSchema.required, ['tool_collation', 'tool_name']);
+    assert.deepEqual(TEST_COMPOSED_TOOL_TOOL.inputSchema.required, ['tool_collation', 'tool_name']);
   });
 
   it('inputSchema includes an arguments property for the tool inputs', () => {
-    assert.ok('arguments' in RUN_COMPOSED_TOOL_TOOL.inputSchema.properties);
+    assert.ok('arguments' in TEST_COMPOSED_TOOL_TOOL.inputSchema.properties);
   });
 
   it('has at least one operation (stub)', () => {
-    assert.ok(RUN_COMPOSED_TOOL_TOOL.operations.length > 0);
+    assert.ok(TEST_COMPOSED_TOOL_TOOL.operations.length > 0);
   });
 });
 
