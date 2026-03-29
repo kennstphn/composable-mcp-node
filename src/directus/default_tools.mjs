@@ -450,7 +450,7 @@ export const LIST_COMPOSED_TOOLS_TOOL = {
       slug: 'fetch_tools',
       type: 'fetch_request',
       config: {
-        url: '{{DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{tool_collation}}&fields=id,slug,name,description,tool_collation',
+        url: '{{DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{tool_collation}}&fields=id,slug,name,description,tool_collation,inputSchema',
         method: 'GET',
         headers: {
           'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
