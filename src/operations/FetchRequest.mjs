@@ -12,44 +12,56 @@
  * The operation resolves with the parsed JSON response body (or raw text when
  * the Content-Type is not application/json).
  *
- * Context interpolation (`{{key}}` / `{{$env.key}}`) is applied to:
+ * Mustache rendering is applied to:
  *   - the URL string
  *   - every header value string
  *   - body string values (recursively inside objects/arrays)
  *
+ * The full Mustache template language is supported: `{{key}}`, `{{a.b}}`,
+ * sections (`{{#items}}…{{/items}}`), inverted sections, partials, etc.
+ * HTML escaping is disabled because this is an HTTP API context, not HTML
+ * generation — use `{{key}}` everywhere (no need for triple-stache `{{{key}}}`).
+ *
  * When a value is *exactly* a single placeholder (`"{{key}}"`) the raw
  * context value is returned as-is (preserving objects/arrays/numbers).
  * When a placeholder is embedded inside a larger string the replacement
- * is always coerced to a string.
+ * is always coerced to a string by Mustache.
  */
 
+import Mustache from 'mustache';
+
+// Disable HTML escaping — this is an HTTP API context, not HTML generation.
+Mustache.escape = (text) => text;
+
 /**
- * Interpolate `{{key}}` / `{{$env.key}}` expressions inside a template.
+ * Render a Mustache `template` string against `context`.
  *
- * @param {string} template - The string that may contain placeholders.
+ * Special case: when the entire template is a single `{{key}}` placeholder
+ * the raw context value is returned as-is so that objects, arrays, and
+ * numbers are preserved rather than being coerced to `[object Object]` etc.
+ *
+ * @param {string} template - The string that may contain Mustache tags.
  * @param {object} context  - The flow context to resolve keys against.
- * @returns {*}             - Interpolated string, or the raw context value
- *                            when the template is a single exact placeholder.
+ * @returns {*}             - Rendered string, or the raw context value when
+ *                            the template is a single exact placeholder.
  */
 function interpolate(template, context) {
   if (typeof template !== 'string') return template;
 
-  // Exact-match: the whole value is one placeholder → return raw context value
-  const exact = /^\{\{(\$?[\w.]+)\}\}$/.exec(template);
+  // Exact-match: the whole value is one placeholder → return raw context value.
+  // This preserves objects/arrays/numbers as-is, which Mustache would stringify.
+  const exact = /^\{\{\s*(\$?[\w.]+)\s*\}\}$/.exec(template);
   if (exact) {
     const value = exact[1].split('.').reduce((obj, k) => obj?.[k], context);
     return value !== undefined ? value : '';
   }
 
-  // Embedded placeholder(s) → always produce a string
-  return template.replace(/\{\{(\$?[\w.]+)\}\}/g, (_, key) => {
-    const value = key.split('.').reduce((obj, k) => obj?.[k], context);
-    return value !== undefined ? String(value) : '';
-  });
+  // Embedded placeholder(s) → delegate to Mustache for full rendering support.
+  return Mustache.render(template, context);
 }
 
 /**
- * Recursively interpolate all string leaves in a value.
+ * Recursively render all string leaves in a value.
  */
 function interpolateValue(value, context) {
   if (typeof value === 'string') return interpolate(value, context);
@@ -83,10 +95,10 @@ export class FetchRequest {
       throw new Error("FetchRequest: 'url' property is required in config");
     }
 
-    // Interpolate context values into URL, headers, and body
+    // Render context values into URL, headers, and body via Mustache
     const resolvedUrl = interpolate(url, context);
 
-    // Interpolate header values
+    // Render header values
     const resolvedHeaders = {};
     for (const [key, value] of Object.entries(headers)) {
       resolvedHeaders[key] = interpolate(value, context);

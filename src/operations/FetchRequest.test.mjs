@@ -243,4 +243,84 @@ describe('FetchRequest', () => {
       globalThis.fetch = origFetch;
     }
   });
+
+  // ─── Mustache rendering ───────────────────────────────────────────────────
+
+  it('does not HTML-escape special characters (Mustache escaping is disabled)', async () => {
+    const op = new FetchRequest({
+      url: 'https://example.com/api',
+      method: 'GET',
+      headers: { 'X-Token': '{{token}}' },
+    });
+
+    const fetchMock = mock.fn(async () => makeResponse(200, {}));
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      // Token contains characters that vanilla Mustache would HTML-escape
+      await op.run({ token: 'a&b<c>d"e' });
+      const [, options] = fetchMock.mock.calls[0].arguments;
+      assert.equal(options.headers['X-Token'], 'a&b<c>d"e');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('supports Mustache tags with surrounding whitespace ({{ key }})', async () => {
+    const op = new FetchRequest({
+      url: 'https://example.com/items/{{ itemId }}',
+      method: 'GET',
+    });
+
+    const fetchMock = mock.fn(async () => makeResponse(200, {}));
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      await op.run({ itemId: '99' });
+      const [url] = fetchMock.mock.calls[0].arguments;
+      assert.equal(url, 'https://example.com/items/99');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('supports Mustache conditional sections in the URL', async () => {
+    const op = new FetchRequest({
+      url: 'https://example.com/items{{#filter}}?type={{filter}}{{/filter}}',
+      method: 'GET',
+    });
+
+    const fetchMock = mock.fn(async () => makeResponse(200, {}));
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      await op.run({ filter: 'active' });
+      const [url] = fetchMock.mock.calls[0].arguments;
+      assert.equal(url, 'https://example.com/items?type=active');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('omits Mustache conditional section when the value is falsy', async () => {
+    const op = new FetchRequest({
+      url: 'https://example.com/items{{#filter}}?type={{filter}}{{/filter}}',
+      method: 'GET',
+    });
+
+    const fetchMock = mock.fn(async () => makeResponse(200, {}));
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      await op.run({});
+      const [url] = fetchMock.mock.calls[0].arguments;
+      assert.equal(url, 'https://example.com/items');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
 });
