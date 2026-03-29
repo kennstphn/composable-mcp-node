@@ -88,6 +88,9 @@ export async function run_operations(operations, start_slug, initialContext = {}
       currentSlug = is_error ? (op.reject || null) : (op.resolve || null);
 
     }
+
+    return context;
+
   }
 
   // Start the chain
