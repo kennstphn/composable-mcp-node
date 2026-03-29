@@ -73,7 +73,7 @@ async function loadAccountability(bearerToken, DIRECTUS_BASE_URL) {
   if(!response.ok){
     throw new Error(`Failed to fetch user info: ${response.status}`);
   }
-  return response.json();
+  return response.json().then(r => r.data);
 }
 
 /**
