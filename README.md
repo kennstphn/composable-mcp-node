@@ -40,26 +40,27 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 | `src/operations/ScriptOperation.mjs` | ✅ working | Runs user JS in a sandboxed `node:vm` context |
 | `src/operations/FetchRequest.mjs` | ✅ working | Outbound HTTP calls with configurable method, headers, body |
 | `src/directus/schema.mjs` | ✅ working | Ensures `tools` and `operations` collections exist in Directus |
-| `src/directus/default_tools.mjs` | ✅ working | Seeds the built-in "default" collation tools |
+| `src/directus/default_tools.mjs` | ✅ working | Built-in tool definitions served from the filesystem at `POST /mcp` |
 | `src/directus/permissions.mjs` | ✅ working | Creates per-user CRUD permissions on tools/operations |
 | `main.mjs` | ✅ working | Entry point |
 | `package.json` | ✅ working | Dependencies declared (express, ajv) |
 
 ### Working pieces
 
-- **Express HTTP server** (`GET /`, `GET /health`, `GET /initialize`, `POST /initialize`, `POST /mcp/:tool_collation`, `GET /rest/:tool_collation`, `POST /rest/events/:tool_collation/:tool_name`)
-- **Directus loader** — fetches tool definitions per request from a Directus collection
+- **Express HTTP server** (`GET /`, `GET /health`, `GET /initialize`, `POST /initialize`, `POST /mcp`, `POST /mcp/:tool_collation`, `GET /rest/:tool_collation`, `POST /rest/events/:tool_collation/:tool_name`)
+- **Default tools endpoint** — `POST /mcp` serves the built-in management tools directly from the filesystem; no Directus round-trip for the tool list
+- **Directus loader** — fetches user-defined tool definitions per request from a Directus collection at `POST /mcp/:tool_collation`
 - **Iterative flow runner** — executes a chain of operations by slug, follows resolve/reject links, guards against infinite loops (max 50 visits per operation)
 - **ScriptOperation** — lets a tool step run arbitrary JS; user code exports `async function(data) { ... }`
 - **FetchRequest** — outbound HTTP calls with `{{key}}` template interpolation in URL, headers, and body; configurable method/headers/body
-- **MCP tool listing** — `POST /mcp/:tool_collation` with `tools/list` returns MCP tool descriptors
+- **MCP tool listing** — `tools/list` returns MCP tool descriptors for the requested endpoint
 - **Input validation** — validates request body against flow’s `inputSchema` using AJV
-- **MCP response format** — `POST /mcp/:tool_collation` returns `{ content: [{ type: "text", text: "..." }] }`
+- **MCP response format** — MCP endpoints return `{ content: [{ type: "text", text: "..." }] }`
 - **Landing page** — `GET /` serves a dark-themed HTML page with a link to the Directus admin, an init-state badge, and a token form for running `POST /initialize` without leaving the browser
 - **Initialization state check** — `GET /initialize` probes Directus and returns one of four states (see below); no auth required for the 404-path, 401/403 is passed through
-- **Bootstrap endpoint** — `POST /initialize` creates Directus schema, seeds default tools, and sets up permissions in one call; blocked with `409` when state is `migration_needed` (migration is not supported)
+- **Bootstrap endpoint** — `POST /initialize` creates Directus schema and sets up permissions in one call; blocked with `409` when state is `migration_needed` (migration is not supported)
 - **Per-user permissions** — CRUD on `tools` and `operations` scoped to the item owner (`user_created = $CURRENT_USER`)
-- **Unit tests** — 59 tests across `run_operations`, `ScriptOperation`, `FetchRequest`, `default_tools`, and `App`
+- **Unit tests** — 61 tests across `run_operations`, `ScriptOperation`, `FetchRequest`, `default_tools`, and `App`
 
 ---
 
@@ -68,18 +69,18 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 ```
 main.mjs
   └─ App.mjs  (Express + lifecycle)
-       ├─ fetchToolsForCollation()  → fetches tool definitions per request
+       ├─ fetchToolsForCollation()  → fetches user-defined tool definitions per request
        ├─ GET  /                    → HTML landing page
        ├─ GET  /health
        ├─ GET  /initialize          → checkInitializationState() → src/directus/schema.mjs
        ├─ POST /initialize          → checkInitializationState() (blocks 409 if migration_needed)
        │    ├─ initializeSchema()    → src/directus/schema.mjs
-       │    ├─ seedDefaultTools()    → src/directus/default_tools.mjs
        │    └─ setupPermissions()    → src/directus/permissions.mjs
+       ├─ POST /mcp                 → DEFAULT_TOOLS (filesystem) → src/directus/default_tools.mjs
        ├─ GET  /rest/:tool_collation
        ├─ POST /mcp/:tool_collation
        └─ POST /rest/events/:tool_collation/:tool_name
-              └─ run_operations(operations, start_slug, env)
+              └─ run_operations(operations, start_slug, context)
                     ├─ ScriptOperation   — sandboxed JS execution
                     └─ FetchRequest      — outbound HTTP calls
 ```
@@ -122,9 +123,17 @@ When the entire value is a single placeholder (e.g., `"{{$last}}"`), the raw con
 
 ---
 
-## Default collation
+## Default tools (`POST /mcp`)
 
-`POST /initialize` seeds seven built-in tools into the `"default"` `tool_collation`. Call these via `POST /mcp/default` or `POST /rest/events/default/<tool-slug>` to manage your tool library without leaving the MCP interface.
+The seven built-in tools are served directly from the server's filesystem at `POST /mcp` — they are **not** stored in Directus and require no seeding step. Call them just like any other MCP endpoint:
+
+```bash
+# List all default tools
+curl -X POST http://localhost:8787/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <directus-token>' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
 
 | Tool slug | What it does |
 |---|---|
@@ -137,6 +146,8 @@ When the entire value is a single placeholder (e.g., `"{{$last}}"`), the raw con
 | `edit_fetch_request_operation` | Updates a `fetch_request` operation step (sparse PATCH); accepts `operation_id` and any of `slug`, `url`, `method`, `headers`, `body`, `resolve`, `reject` |
 
 The add/edit operation tools are split by type so each has purpose-built input fields instead of a generic `type`+`config` pair. This means the MCP client can prompt more specifically — `code` for scripts, `url`/`method`/`headers`/`body` for HTTP calls.
+
+When a default tool executes, the server injects `DIRECTUS_BASE_URL` and `DIRECTUS_TOKEN` into the flow context as top-level keys (not inside `$env`). This keeps credentials accessible to `fetch_request` interpolation (`{{DIRECTUS_TOKEN}}`) while keeping them out of the data object passed to `run_script` functions.
 
 ---
 
@@ -155,9 +166,9 @@ curl http://localhost:8787/initialize \
 | State | Meaning |
 |-------|---------|
 | `needed` | Neither the `tools` nor the `operations` collection exists — fresh installation |
-| `in_progress` | Collections exist but initialization is incomplete (missing relation or default tools) |
+| `in_progress` | Collections exist but initialization is incomplete (missing relation) |
 | `migration_needed` | Collections exist but one or more expected fields are absent (app was updated) — **migration is not supported**; resolve the schema differences manually using the field names in `details` |
-| `complete` | All collections, fields, relations, and default tools are in place |
+| `complete` | All collections, fields, and relations are in place |
 
 When no token is provided the endpoint returns `{ "state": "needed" }` without contacting Directus.
 
@@ -184,7 +195,7 @@ Navigating to the server root in a browser shows a setup dashboard:
 
 ### Dev Ease
 - [x] create a POST /initialize handler which checks for needed collections in directus and creates/updates them if needed
-- [x] add a default tool_collation "default" with tools [create_tool, add_run_script_operation, add_fetch_request_operation, edit_tool, edit_run_script_operation, edit_fetch_request_operation, list_operation_types]
+- [x] serve default tools [create_tool, add_run_script_operation, add_fetch_request_operation, edit_tool, edit_run_script_operation, edit_fetch_request_operation, list_operation_types] from the filesystem at POST /mcp (no Directus seeding required)
 - [x] Directus permissions for CRUD on tools / operations should be essentially "owned by this user"
 - [x] GET /initialize — returns initialization state (`complete`, `in_progress`, `needed`, `migration_needed`)
 - [x] GET / — HTML landing page with Directus link and initialization form
@@ -213,11 +224,18 @@ curl http://localhost:8787/initialize \
 # health check
 curl http://localhost:8787/health
 
-# bootstrap Directus schema + default tools + permissions (run once per Directus instance)
+# bootstrap Directus schema + permissions (run once per Directus instance)
+# note: default tools are filesystem-side and need no seeding
 curl -X POST http://localhost:8787/initialize \
   -H 'Authorization: Bearer <directus-token>'
 
-# list tools in a collation (MCP)
+# list default tools (filesystem-side, no Directus lookup)
+curl -X POST http://localhost:8787/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <directus-token>' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# list tools in a user-defined collation (fetched from Directus)
 curl -X POST http://localhost:8787/mcp/my-collation \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <directus-token>' \
@@ -235,8 +253,8 @@ curl -X POST http://localhost:8787/rest/events/my-collation/my-tool \
   -H 'Authorization: Bearer <directus-token>' \
   -d '{"input": "hello"}'
 
-# create a new tool using the default collation
-curl -X POST http://localhost:8787/mcp/default \
+# create a new tool using the default tools at POST /mcp
+curl -X POST http://localhost:8787/mcp \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <directus-token>' \
   -d '{ \
@@ -253,7 +271,7 @@ curl -X POST http://localhost:8787/mcp/default \
   }'
 
 # add a run_script operation step to a tool (tool_id from create_tool response)
-curl -X POST http://localhost:8787/mcp/default \
+curl -X POST http://localhost:8787/mcp \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <directus-token>' \
   -d '{ \
@@ -269,7 +287,7 @@ curl -X POST http://localhost:8787/mcp/default \
   }'
 
 # add a fetch_request operation step to a tool
-curl -X POST http://localhost:8787/mcp/default \
+curl -X POST http://localhost:8787/mcp \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <directus-token>' \
   -d '{ \
@@ -281,7 +299,7 @@ curl -X POST http://localhost:8787/mcp/default \
         "slug": "step-1", \
         "url": "https://api.example.com/items/{{id}}", \
         "method": "GET", \
-        "headers": { "Authorization": "Bearer {{$env.DIRECTUS_TOKEN}}" } \
+        "headers": { "Authorization": "Bearer {{DIRECTUS_TOKEN}}" } \
       } \
     } \
   }'

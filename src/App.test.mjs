@@ -114,6 +114,157 @@ describe('App', () => {
     });
   });
 
+  // ─── POST /mcp (default tools — filesystem) ──────────────────────────────
+
+  describe('POST /mcp', () => {
+    let app, base;
+    before(async () => { app = makeApp(); base = await startApp(app); });
+    after(() => app.close());
+
+    it('returns 401 when Authorization header is missing for tools/list', async () => {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      assert.equal(res.status, 401);
+      const body = await res.json();
+      assert.ok(body.error);
+    });
+
+    it('returns all default tool descriptors for tools/list', async () => {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer test-token',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.jsonrpc, '2.0');
+      assert.equal(body.id, 1);
+      assert.ok(Array.isArray(body.result.tools));
+      assert.equal(body.result.tools.length, 7);
+      const names = body.result.tools.map(t => t.name);
+      assert.ok(names.includes('list_operation_types'));
+      assert.ok(names.includes('create_tool'));
+      assert.ok(names.includes('add_run_script_operation'));
+      assert.ok(names.includes('add_fetch_request_operation'));
+      assert.ok(names.includes('edit_tool'));
+      assert.ok(names.includes('edit_run_script_operation'));
+      assert.ok(names.includes('edit_fetch_request_operation'));
+    });
+
+    it('executes list_operation_types and returns the two operation types', async () => {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer test-token',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: { name: 'list_operation_types', arguments: {} },
+        }),
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.result.isError, undefined);
+      const parsed = JSON.parse(body.result.content[0].text);
+      assert.ok(parsed.includes('run_script'));
+      assert.ok(parsed.includes('fetch_request'));
+    });
+
+    it('injects DIRECTUS_BASE_URL and DIRECTUS_TOKEN into the flow context', async () => {
+      // Use a fetch_request tool (create_tool) and verify the URL/auth interpolation
+      // by intercepting the outbound fetch
+      let capturedUrl, capturedAuth;
+      const origFetch = globalThis.fetch;
+      globalThis.fetch = async (url, options) => {
+        // Capture the first non-local call (the Directus POST)
+        if (typeof url === 'string' && url.includes('directus.test')) {
+          capturedUrl = url;
+          capturedAuth = options?.headers?.Authorization;
+          return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ data: { id: 99 } }) };
+        }
+        return origFetch(url, options);
+      };
+      try {
+        await fetch(`${base}/mcp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer my-directus-token',
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 3,
+            method: 'tools/call',
+            params: {
+              name: 'create_tool',
+              arguments: { slug: 'test', name: 'Test', tool_collation: 'mine', start_slug: 's1' },
+            },
+          }),
+        });
+        assert.ok(capturedUrl, 'should have made a Directus fetch');
+        assert.ok(capturedUrl.includes('directus.test'), 'URL should use DIRECTUS_BASE_URL');
+        assert.equal(capturedAuth, 'Bearer my-directus-token', 'Authorization should use DIRECTUS_TOKEN');
+      } finally {
+        globalThis.fetch = origFetch;
+      }
+    });
+
+    it('returns isError when the named tool does not exist', async () => {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer test-token',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 4,
+          method: 'tools/call',
+          params: { name: 'nonexistent_tool', arguments: {} },
+        }),
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.result.isError, true);
+      assert.ok(body.result.content[0].text.includes('nonexistent_tool'));
+    });
+
+    it('returns 400 for an unknown JSON-RPC method', async () => {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer test-token',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'unknown/method' }),
+      });
+      assert.equal(res.status, 400);
+      const body = await res.json();
+      assert.ok(body.error);
+    });
+
+    it('responds to the MCP initialize handshake without auth', async () => {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'initialize' }),
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.ok(body.result.protocolVersion);
+      assert.ok(body.result.capabilities.tools);
+    });
+  });
+
   // ─── POST /mcp/:tool_collation ────────────────────────────────────────────
 
   describe('POST /mcp/:tool_collation', () => {
@@ -482,7 +633,7 @@ describe('App', () => {
     });
 
     it('returns ok:true and action summaries on success', async () => {
-      // Stub all Directus schema / items / users endpoints
+      // Stub all Directus schema / users / permissions endpoints
       const orig = mockDirectusFetch((url, options) => {
         const method = (options?.method || 'GET').toUpperCase();
         // GET /collections list (checkInitializationState pre-check) → empty, so state = needed
@@ -504,18 +655,6 @@ describe('App', () => {
         // relation creation → 200
         if (/\/relations$/.test(url) && method === 'POST') {
           return { ok: true, status: 200, json: async () => ({ data: {} }) };
-        }
-        // tools list for default seeding → empty
-        if (/\/items\/tools/.test(url) && method === 'GET') {
-          return { ok: true, status: 200, json: async () => ({ data: [] }) };
-        }
-        // tool creation → return a tool with an id
-        if (/\/items\/tools$/.test(url) && method === 'POST') {
-          return { ok: true, status: 200, json: async () => ({ data: { id: 1 } }) };
-        }
-        // operation creation → 200
-        if (/\/items\/operations$/.test(url) && method === 'POST') {
-          return { ok: true, status: 200, json: async () => ({ data: { id: 1 } }) };
         }
         // users/me → return a role
         if (/\/users\/me/.test(url)) {
@@ -541,11 +680,11 @@ describe('App', () => {
         const body = await res.json();
         assert.equal(body.ok, true);
         assert.ok(body.schema);
-        assert.ok(body.defaultTools);
         assert.ok(body.permissions);
         assert.ok(Array.isArray(body.schema.actions));
-        assert.ok(Array.isArray(body.defaultTools.actions));
         assert.ok(Array.isArray(body.permissions.actions));
+        // default tools are filesystem-side — no seeding step
+        assert.ok(!body.defaultTools, 'defaultTools should not be present in response');
       } finally {
         restoreGlobalFetch(orig);
       }
@@ -666,7 +805,6 @@ describe('App', () => {
       ].map(field => ({ field }));
 
       const orig = mockDirectusFetch((url, options) => {
-        const method = (options?.method || 'GET').toUpperCase();
         if (/\/collections$/.test(url)) {
           return { ok: true, status: 200, json: async () => ({ data: [{ collection: 'tools' }, { collection: 'operations' }] }) };
         }
@@ -678,9 +816,6 @@ describe('App', () => {
         }
         if (/\/relations\/operations\/tool/.test(url)) {
           return { ok: true, status: 200, json: async () => ({ data: {} }) };
-        }
-        if (/\/items\/tools/.test(url) && method === 'GET') {
-          return { ok: true, status: 200, json: async () => ({ data: [{ id: 1 }] }) };
         }
         return { ok: true, status: 200, json: async () => ({ data: {} }) };
       });
@@ -696,7 +831,7 @@ describe('App', () => {
       }
     });
 
-    it('returns state:in_progress when collections exist but no default tools are seeded', async () => {
+    it('returns state:complete when collections, fields, and relation are all in place', async () => {
       const TOOL_FIELDS = [
         'id', 'slug', 'name', 'description', 'tool_collation',
         'inputSchema', 'start_slug', 'user_created', 'date_created',
@@ -720,9 +855,7 @@ describe('App', () => {
         if (/\/relations\/operations\/tool/.test(url)) {
           return { ok: true, status: 200, json: async () => ({ data: {} }) };
         }
-        if (/\/items\/tools/.test(url) && method === 'GET') {
-          return { ok: true, status: 200, json: async () => ({ data: [] }) };
-        }
+        // No /items/tools call expected — default tools are filesystem-side
         return { ok: true, status: 200, json: async () => ({ data: {} }) };
       });
       try {
@@ -731,7 +864,7 @@ describe('App', () => {
         });
         assert.equal(res.status, 200);
         const body = await res.json();
-        assert.equal(body.state, 'in_progress');
+        assert.equal(body.state, 'complete');
       } finally {
         restoreGlobalFetch(orig);
       }

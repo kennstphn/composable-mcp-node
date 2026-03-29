@@ -1,16 +1,18 @@
 /**
- * Default tool definitions for the "default" collation.
+ * Default tool definitions — served directly from the filesystem at POST /mcp.
  *
- * These seven tools let an authenticated user manage tool definitions
- * inside Directus through the MCP / REST interface.  They rely on:
+ * These seven tools let an authenticated user manage tool definitions inside
+ * Directus through the MCP interface.  They are NOT stored in Directus; the
+ * server loads them from this module and executes them locally.
  *
- *   • `$env.DIRECTUS_BASE_URL`  — injected by the server into every flow
- *   • `$env.DIRECTUS_TOKEN`     — the caller's bearer token, also injected
+ * When a default tool is executed the server injects two top-level context keys
+ * that fetch_request operations can use via template interpolation:
  *
- * Each tool is a plain object matching the shape that `fetchToolsForCollation`
- * returns from Directus (slug, name, description, inputSchema, start_slug,
- * operations[]).  Seeding them into Directus makes them available to every
- * caller of the "default" collation.
+ *   • `DIRECTUS_BASE_URL` — the server's configured Directus instance URL
+ *   • `DIRECTUS_TOKEN`    — the caller's bearer token (from the Authorization header)
+ *
+ * These keys are intentionally NOT placed in `$env` so they are unavailable to
+ * run_script operations, which keeps credentials out of user-visible code paths.
  */
 
 // ─── list_operation_types ─────────────────────────────────────────────────────
@@ -19,7 +21,6 @@ export const LIST_OPERATION_TYPES_TOOL = {
   slug: 'list_operation_types',
   name: 'List Operation Types',
   description: 'Returns the operation types supported by this server.',
-  tool_collation: 'default',
   inputSchema: { type: 'object', properties: {} },
   start_slug: 'return_types',
   operations: [
@@ -41,7 +42,6 @@ export const CREATE_TOOL_TOOL = {
   slug: 'create_tool',
   name: 'Create Tool',
   description: 'Creates a new tool definition in Directus.',
-  tool_collation: 'default',
   inputSchema: {
     type: 'object',
     properties: {
@@ -60,10 +60,10 @@ export const CREATE_TOOL_TOOL = {
       slug: 'post_tool',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools',
+        url: '{{DIRECTUS_BASE_URL}}/items/tools',
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer {{$env.DIRECTUS_TOKEN}}',
+          'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: {
@@ -87,7 +87,6 @@ export const ADD_RUN_SCRIPT_OPERATION_TOOL = {
   slug: 'add_run_script_operation',
   name: 'Add Run Script Operation',
   description: 'Adds a run_script operation step to an existing tool.',
-  tool_collation: 'default',
   inputSchema: {
     type: 'object',
     properties: {
@@ -105,10 +104,10 @@ export const ADD_RUN_SCRIPT_OPERATION_TOOL = {
       slug: 'post_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
+        url: '{{DIRECTUS_BASE_URL}}/items/operations',
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer {{$env.DIRECTUS_TOKEN}}',
+          'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: {
@@ -132,7 +131,6 @@ export const ADD_FETCH_REQUEST_OPERATION_TOOL = {
   slug: 'add_fetch_request_operation',
   name: 'Add Fetch Request Operation',
   description: 'Adds a fetch_request operation step to an existing tool.',
-  tool_collation: 'default',
   inputSchema: {
     type: 'object',
     properties: {
@@ -180,10 +178,10 @@ export const ADD_FETCH_REQUEST_OPERATION_TOOL = {
       slug: 'post_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
+        url: '{{DIRECTUS_BASE_URL}}/items/operations',
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer {{$env.DIRECTUS_TOKEN}}',
+          'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: '{{$last}}',
@@ -200,7 +198,6 @@ export const EDIT_TOOL_TOOL = {
   slug: 'edit_tool',
   name: 'Edit Tool',
   description: 'Updates fields on an existing tool.  Only supplied fields are changed.',
-  tool_collation: 'default',
   inputSchema: {
     type: 'object',
     properties: {
@@ -241,10 +238,10 @@ export const EDIT_TOOL_TOOL = {
       slug: 'patch_tool',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools/{{tool_id}}',
+        url: '{{DIRECTUS_BASE_URL}}/items/tools/{{tool_id}}',
         method: 'PATCH',
         headers: {
-          'Authorization': 'Bearer {{$env.DIRECTUS_TOKEN}}',
+          'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: '{{$last}}',
@@ -261,7 +258,6 @@ export const EDIT_RUN_SCRIPT_OPERATION_TOOL = {
   slug: 'edit_run_script_operation',
   name: 'Edit Run Script Operation',
   description: 'Updates a run_script operation step.  Only supplied fields are changed.',
-  tool_collation: 'default',
   inputSchema: {
     type: 'object',
     properties: {
@@ -299,10 +295,10 @@ export const EDIT_RUN_SCRIPT_OPERATION_TOOL = {
       slug: 'patch_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{operation_id}}',
+        url: '{{DIRECTUS_BASE_URL}}/items/operations/{{operation_id}}',
         method: 'PATCH',
         headers: {
-          'Authorization': 'Bearer {{$env.DIRECTUS_TOKEN}}',
+          'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: '{{$last}}',
@@ -319,7 +315,6 @@ export const EDIT_FETCH_REQUEST_OPERATION_TOOL = {
   slug: 'edit_fetch_request_operation',
   name: 'Edit Fetch Request Operation',
   description: 'Updates a fetch_request operation step.  Only supplied fields are changed.',
-  tool_collation: 'default',
   inputSchema: {
     type: 'object',
     properties: {
@@ -367,10 +362,10 @@ export const EDIT_FETCH_REQUEST_OPERATION_TOOL = {
       slug: 'patch_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{operation_id}}',
+        url: '{{DIRECTUS_BASE_URL}}/items/operations/{{operation_id}}',
         method: 'PATCH',
         headers: {
-          'Authorization': 'Bearer {{$env.DIRECTUS_TOKEN}}',
+          'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: '{{$last}}',
@@ -392,86 +387,3 @@ export const DEFAULT_TOOLS = [
   EDIT_RUN_SCRIPT_OPERATION_TOOL,
   EDIT_FETCH_REQUEST_OPERATION_TOOL,
 ];
-
-// ─── Seeding helper ───────────────────────────────────────────────────────────
-
-/**
- * Ensure every default tool exists in the "default" collation.
- * Tools are identified by slug; existing ones are left untouched.
- *
- * @param {string} baseUrl  - Directus base URL
- * @param {string} token    - Bearer token
- * @returns {object}        - Summary of actions taken
- */
-export async function seedDefaultTools(baseUrl, token) {
-  // Fetch all tools in the default collation to check which already exist
-  const url = new URL('/items/tools', baseUrl);
-  url.searchParams.set('filter[tool_collation][_eq]', 'default');
-  url.searchParams.set('fields', 'slug');
-
-  const listRes = await fetch(url.toString(), {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!listRes.ok) {
-    throw new Error(`Failed to list default tools: Directus returned ${listRes.status}`);
-  }
-
-  const { data: existingTools } = await listRes.json();
-  const existingSlugs = new Set((existingTools || []).map(t => t.slug));
-
-  const actions = [];
-
-  for (const tool of DEFAULT_TOOLS) {
-    if (existingSlugs.has(tool.slug)) {
-      actions.push({ action: 'already_exists', resource: `tool:${tool.slug}` });
-      continue;
-    }
-
-    // POST the tool (without nested operations — they'll be added separately)
-    const { operations, ...toolData } = tool;
-
-    const toolRes = await fetch(new URL('/items/tools', baseUrl).toString(), {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(toolData),
-    });
-
-    if (!toolRes.ok) {
-      const err = await toolRes.json().catch(() => ({}));
-      throw new Error(`Failed to create tool "${tool.slug}": ${JSON.stringify(err)}`);
-    }
-
-    const { data: createdTool } = await toolRes.json();
-    actions.push({ action: 'created', resource: `tool:${tool.slug}` });
-
-    // POST each operation linked to the created tool
-    for (const op of operations) {
-      const opRes = await fetch(new URL('/items/operations', baseUrl).toString(), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ ...op, tool: createdTool.id }),
-      });
-
-      if (!opRes.ok) {
-        const err = await opRes.json().catch(() => ({}));
-        throw new Error(
-          `Failed to create operation "${op.slug}" for tool "${tool.slug}": ${JSON.stringify(err)}`,
-        );
-      }
-
-      actions.push({ action: 'created', resource: `operation:${tool.slug}/${op.slug}` });
-    }
-  }
-
-  return { actions };
-}

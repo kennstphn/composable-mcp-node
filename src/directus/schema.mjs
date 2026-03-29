@@ -320,17 +320,10 @@ export async function checkInitializationState(baseUrl, token) {
   const relRes = await directusFetch(baseUrl, token, '/relations/operations/tool');
   if (relRes.status === 404) return { state: 'in_progress' };
 
-  // 4. Check that at least one default-collation tool has been seeded.
-  const defaultRes = await directusFetch(
-    baseUrl,
-    token,
-    '/items/tools?filter[tool_collation][_eq]=default&limit=1&fields=id',
-  );
-  if (defaultRes.ok && (defaultRes.data?.data?.length ?? 0) > 0) {
-    return { state: 'complete' };
-  }
-
-  return { state: 'in_progress' };
+  // Collections, fields, and relation are all in place.
+  // Default tools are served from the filesystem (not stored in Directus),
+  // so no seeding check is needed here.
+  return { state: 'complete' };
 }
 
 // ─── Main entry point ─────────────────────────────────────────────────────────

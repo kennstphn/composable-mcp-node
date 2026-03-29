@@ -16,6 +16,11 @@ import { ScriptOperation } from '../operations/ScriptOperation.mjs';
  * the result, simulating how run_operations.mjs executes it.
  * The result is JSON-roundtripped to avoid cross-VM-realm object comparison
  * failures in assert.deepStrictEqual.
+ *
+ * Note: at runtime the `/mcp` route also injects `DIRECTUS_BASE_URL` and
+ * `DIRECTUS_TOKEN` as top-level context keys.  The scripts tested here
+ * (build_body, build_patch) only read user-provided input fields and do not
+ * touch those keys, so they are intentionally omitted from this helper.
  */
 async function runEmbeddedScript(operation, inputData) {
   const scriptOp = new ScriptOperation(operation.config);
@@ -44,10 +49,33 @@ describe('DEFAULT_TOOLS', () => {
     for (const tool of DEFAULT_TOOLS) {
       assert.ok(tool.slug,          `${tool.slug}: missing slug`);
       assert.ok(tool.name,          `${tool.slug}: missing name`);
-      assert.ok(tool.tool_collation,`${tool.slug}: missing tool_collation`);
       assert.ok(tool.start_slug,    `${tool.slug}: missing start_slug`);
       assert.ok(Array.isArray(tool.operations), `${tool.slug}: operations must be an array`);
       assert.ok(tool.operations.length > 0,     `${tool.slug}: operations must not be empty`);
+    }
+  });
+
+  it('no tool has a tool_collation field (they are filesystem-side, not stored in Directus)', () => {
+    for (const tool of DEFAULT_TOOLS) {
+      assert.ok(!('tool_collation' in tool), `${tool.slug}: should not have tool_collation`);
+    }
+  });
+
+  it('fetch_request operations use {{DIRECTUS_BASE_URL}} and {{DIRECTUS_TOKEN}}, not $env', () => {
+    for (const tool of DEFAULT_TOOLS) {
+      for (const op of tool.operations) {
+        if (op.type !== 'fetch_request') continue;
+        const url = op.config?.url || '';
+        const auth = op.config?.headers?.Authorization || '';
+        assert.ok(!url.includes('$env'),  `${tool.slug}/${op.slug}: url must not reference $env`);
+        assert.ok(!auth.includes('$env'), `${tool.slug}/${op.slug}: Authorization must not reference $env`);
+        if (url.includes('DIRECTUS')) {
+          assert.ok(url.includes('{{DIRECTUS_BASE_URL}}'), `${tool.slug}/${op.slug}: url should use {{DIRECTUS_BASE_URL}}`);
+        }
+        if (auth.includes('DIRECTUS')) {
+          assert.ok(auth.includes('{{DIRECTUS_TOKEN}}'), `${tool.slug}/${op.slug}: Authorization should use {{DIRECTUS_TOKEN}}`);
+        }
+      }
     }
   });
 });

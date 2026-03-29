@@ -2,7 +2,7 @@ import express from 'express';
 import Ajv from 'ajv';
 import { run_operations } from './functions/run_operations.mjs';
 import { initializeSchema, checkInitializationState } from './directus/schema.mjs';
-import { seedDefaultTools } from './directus/default_tools.mjs';
+import { DEFAULT_TOOLS } from './directus/default_tools.mjs';
 import { setupPermissions } from './directus/permissions.mjs';
 
 const ajv = new Ajv({ allErrors: true, coerceTypes: false });
@@ -391,7 +391,6 @@ export class App {
       const results = {};
       try {
         results.schema      = await initializeSchema(this.DIRECTUS_BASE_URL, bearerToken);
-        results.defaultTools = await seedDefaultTools(this.DIRECTUS_BASE_URL, bearerToken);
         results.permissions  = await setupPermissions(this.DIRECTUS_BASE_URL, bearerToken);
         return res.json({ ok: true, ...results });
       } catch (err) {
@@ -401,6 +400,124 @@ export class App {
           ...results,
         });
       }
+    });
+
+    // Default tools — served from the filesystem, available at POST /mcp (no collation needed)
+    this.app.post('/mcp', async (req, res) => {
+      const { jsonrpc, id, method, params } = req.body || {};
+
+      if (method === 'initialize') {
+        return res.json({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: { tools: { list: true, call: true } },
+            serverInfo: { name: 'composable-mcp', version: '0.1.0' },
+          },
+        });
+      }
+
+      if (method === 'notifications/initialized') {
+        return res.status(204).end();
+      }
+
+      if (method === 'ping') {
+        return res.json({ jsonrpc: '2.0', id, result: {} });
+      }
+
+      const bearerToken = extractBearerToken(req);
+      if (!bearerToken) {
+        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+      }
+
+      if (method === 'tools/list') {
+        return res.json({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            tools: DEFAULT_TOOLS.map(t => ({
+              name: t.slug,
+              description: t.description || '',
+              inputSchema: t.inputSchema || { type: 'object', properties: {} },
+            })),
+          },
+        });
+      }
+
+      if (method === 'tools/call') {
+        const { name, arguments: args } = params || {};
+        const tool = DEFAULT_TOOLS.find(t => t.slug === name);
+
+        if (!tool) {
+          return res.json({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              content: [{ type: 'text', text: `Tool "${name}" not found` }],
+              isError: true,
+            },
+          });
+        }
+
+        if (tool.inputSchema) {
+          const validate = ajv.compile(tool.inputSchema);
+          if (!validate(args || {})) {
+            const messages = (validate.errors || []).map(e => `${e.instancePath} ${e.message}`.trim()).join('; ');
+            return res.json({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [{ type: 'text', text: `Invalid input: ${messages}` }],
+                isError: true,
+              },
+            });
+          }
+        }
+
+        try {
+          const result = await this.executeFlow(tool, {
+            ...(args || {}),
+            // DIRECTUS_BASE_URL and DIRECTUS_TOKEN are injected so that
+            // fetch_request operations can use {{DIRECTUS_BASE_URL}} and
+            // {{DIRECTUS_TOKEN}} template interpolation.
+            //
+            // Security note: these keys are also technically visible to
+            // run_script operations via the `data` argument.  This is
+            // acceptable because default tools are filesystem-defined
+            // (trusted server code), not user-supplied.  User-defined tools
+            // served via POST /mcp/:tool_collation do NOT receive these keys.
+            DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
+            DIRECTUS_TOKEN: bearerToken,
+          });
+          const lastValue = result.$last;
+          const text = typeof lastValue === 'string'
+            ? lastValue
+            : JSON.stringify(lastValue, null, 2);
+
+          return res.json({
+            jsonrpc: '2.0',
+            id,
+            result: { content: [{ type: 'text', text }] },
+          });
+        } catch (err) {
+          console.error(`Default tool "${name}" failed:`, err);
+          return res.json({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              content: [{ type: 'text', text: err.message }],
+              isError: true,
+            },
+          });
+        }
+      }
+
+      return res.status(400).json({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32601, message: `Method not found: ${method}` },
+      });
     });
 
     // MCP endpoint — per-request Directus fetch using the caller's Bearer token
@@ -497,13 +614,6 @@ export class App {
         }
 
         try {
-          const env = Object.freeze({
-            PORT: this.PORT,
-            DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
-            NODE_ENV: this.NODE_ENV,
-            DIRECTUS_TOKEN: bearerToken,
-          });
-
           const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
           const result = await this.executeFlow(tool, {...args,$accountability});
           const lastValue = result.$last;
@@ -630,6 +740,7 @@ export class App {
         console.log(`   Init state:    GET  /initialize`);
         console.log(`   Health:        GET  /health`);
         console.log(`   Initialize:    POST /initialize`);
+        console.log(`   MCP (default): POST /mcp`);
         console.log(`   MCP:           POST /mcp/{tool_collation}`);
         console.log(`   REST tools:    GET  /rest/{tool_collation}`);
         console.log(`   REST trigger:  POST /rest/events/{tool_collation}/{tool_name}`);
