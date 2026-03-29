@@ -1,7 +1,7 @@
 /**
  * Default tool definitions for the "default" collation.
  *
- * These five tools let an authenticated user manage tool definitions
+ * These seven tools let an authenticated user manage tool definitions
  * inside Directus through the MCP / REST interface.  They rely on:
  *
  *   • `$env.DIRECTUS_BASE_URL`  — injected by the server into every flow
@@ -81,24 +81,23 @@ export const CREATE_TOOL_TOOL = {
   ],
 };
 
-// ─── add_operation ────────────────────────────────────────────────────────────
+// ─── add_run_script_operation ─────────────────────────────────────────────────
 
-export const ADD_OPERATION_TOOL = {
-  slug: 'add_operation',
-  name: 'Add Operation',
-  description: 'Adds an operation step to an existing tool.',
+export const ADD_RUN_SCRIPT_OPERATION_TOOL = {
+  slug: 'add_run_script_operation',
+  name: 'Add Run Script Operation',
+  description: 'Adds a run_script operation step to an existing tool.',
   tool_collation: 'default',
   inputSchema: {
     type: 'object',
     properties: {
       tool_id:  { type: 'integer', description: 'ID of the parent tool' },
       slug:     { type: 'string',  description: 'Unique slug for this operation within the tool' },
-      type:     { type: 'string',  enum: ['run_script', 'fetch_request'], description: 'Operation type' },
-      config:   { type: 'object',  description: 'Type-specific configuration' },
+      code:     { type: 'string',  description: 'JavaScript code: module.exports = async function(data) { ... }' },
       resolve:  { type: 'string',  description: 'Slug of next operation on success (omit to stop)' },
       reject:   { type: 'string',  description: 'Slug of next operation on error (omit to stop)' },
     },
-    required: ['tool_id', 'slug', 'type', 'config'],
+    required: ['tool_id', 'slug', 'code'],
   },
   start_slug: 'post_operation',
   operations: [
@@ -115,11 +114,79 @@ export const ADD_OPERATION_TOOL = {
         body: {
           tool:    '{{tool_id}}',
           slug:    '{{slug}}',
-          type:    '{{type}}',
-          config:  '{{config}}',
+          type:    'run_script',
+          config:  { code: '{{code}}' },
           resolve: '{{resolve}}',
           reject:  '{{reject}}',
         },
+      },
+      resolve: null,
+      reject: null,
+    },
+  ],
+};
+
+// ─── add_fetch_request_operation ──────────────────────────────────────────────
+
+export const ADD_FETCH_REQUEST_OPERATION_TOOL = {
+  slug: 'add_fetch_request_operation',
+  name: 'Add Fetch Request Operation',
+  description: 'Adds a fetch_request operation step to an existing tool.',
+  tool_collation: 'default',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tool_id:  { type: 'integer', description: 'ID of the parent tool' },
+      slug:     { type: 'string',  description: 'Unique slug for this operation within the tool' },
+      url:      { type: 'string',  description: 'URL to fetch (supports {{template}} interpolation)' },
+      method:   { type: 'string',  enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], description: 'HTTP method (default: GET)' },
+      headers:  { type: 'object',  description: 'HTTP headers as key-value pairs' },
+      body:     { description: 'Request body (object or string)' },
+      resolve:  { type: 'string',  description: 'Slug of next operation on success (omit to stop)' },
+      reject:   { type: 'string',  description: 'Slug of next operation on error (omit to stop)' },
+    },
+    required: ['tool_id', 'slug', 'url'],
+  },
+  start_slug: 'build_body',
+  operations: [
+    {
+      // Step 1: assemble the operation document, keeping optional config fields
+      // out when they were not provided by the caller
+      slug: 'build_body',
+      type: 'run_script',
+      config: {
+        code: [
+          'module.exports = async function(data) {',
+          '  const config = { url: data.url };',
+          '  if (data.method  !== undefined) config.method  = data.method;',
+          '  if (data.headers !== undefined) config.headers = data.headers;',
+          '  if (data.body    !== undefined) config.body    = data.body;',
+          '  return {',
+          '    tool:    data.tool_id,',
+          '    slug:    data.slug,',
+          '    type:    "fetch_request",',
+          '    config,',
+          '    resolve: data.resolve ?? null,',
+          '    reject:  data.reject  ?? null,',
+          '  };',
+          '};',
+        ].join('\n'),
+      },
+      resolve: 'post_operation',
+      reject: null,
+    },
+    {
+      // Step 2: POST the assembled document to Directus
+      slug: 'post_operation',
+      type: 'fetch_request',
+      config: {
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer {{$env.DIRECTUS_TOKEN}}',
+          'Content-Type': 'application/json',
+        },
+        body: '{{$last}}',
       },
       resolve: null,
       reject: null,
@@ -188,39 +255,38 @@ export const EDIT_TOOL_TOOL = {
   ],
 };
 
-// ─── edit_operation ───────────────────────────────────────────────────────────
+// ─── edit_run_script_operation ────────────────────────────────────────────────
 
-export const EDIT_OPERATION_TOOL = {
-  slug: 'edit_operation',
-  name: 'Edit Operation',
-  description: 'Updates fields on an existing operation step.  Only supplied fields are changed.',
+export const EDIT_RUN_SCRIPT_OPERATION_TOOL = {
+  slug: 'edit_run_script_operation',
+  name: 'Edit Run Script Operation',
+  description: 'Updates a run_script operation step.  Only supplied fields are changed.',
   tool_collation: 'default',
   inputSchema: {
     type: 'object',
     properties: {
       operation_id: { type: 'integer', description: 'ID of the operation to update' },
-      slug:         { type: 'string' },
-      type:         { type: 'string', enum: ['run_script', 'fetch_request'] },
-      config:       { type: 'object' },
-      resolve:      { type: 'string' },
-      reject:       { type: 'string' },
+      slug:         { type: 'string',  description: 'New slug for this operation' },
+      code:         { type: 'string',  description: 'New JavaScript code for the script' },
+      resolve:      { type: 'string',  description: 'Slug of next operation on success (omit to keep current)' },
+      reject:       { type: 'string',  description: 'Slug of next operation on error (omit to keep current)' },
     },
     required: ['operation_id'],
   },
   start_slug: 'build_patch',
   operations: [
     {
+      // Step 1: build a patch object containing only the provided fields
       slug: 'build_patch',
       type: 'run_script',
       config: {
         code: [
           'module.exports = async function(data) {',
-          '  // Mutable fields of the operations collection (mirrors OPERATIONS_SCHEMA in schema.mjs)',
-          '  const fields = ["slug","type","config","resolve","reject"];',
           '  const patch = {};',
-          '  for (const f of fields) {',
-          '    if (data[f] !== undefined) patch[f] = data[f];',
-          '  }',
+          '  if (data.slug    !== undefined) patch.slug    = data.slug;',
+          '  if (data.resolve !== undefined) patch.resolve = data.resolve;',
+          '  if (data.reject  !== undefined) patch.reject  = data.reject;',
+          '  if (data.code    !== undefined) patch.config  = { code: data.code };',
           '  return patch;',
           '};',
         ].join('\n'),
@@ -229,6 +295,75 @@ export const EDIT_OPERATION_TOOL = {
       reject: null,
     },
     {
+      // Step 2: PATCH the operation with the built object ($last)
+      slug: 'patch_operation',
+      type: 'fetch_request',
+      config: {
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{operation_id}}',
+        method: 'PATCH',
+        headers: {
+          'Authorization': 'Bearer {{$env.DIRECTUS_TOKEN}}',
+          'Content-Type': 'application/json',
+        },
+        body: '{{$last}}',
+      },
+      resolve: null,
+      reject: null,
+    },
+  ],
+};
+
+// ─── edit_fetch_request_operation ─────────────────────────────────────────────
+
+export const EDIT_FETCH_REQUEST_OPERATION_TOOL = {
+  slug: 'edit_fetch_request_operation',
+  name: 'Edit Fetch Request Operation',
+  description: 'Updates a fetch_request operation step.  Only supplied fields are changed.',
+  tool_collation: 'default',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      operation_id: { type: 'integer', description: 'ID of the operation to update' },
+      slug:         { type: 'string',  description: 'New slug for this operation' },
+      url:          { type: 'string',  description: 'New URL to fetch' },
+      method:       { type: 'string',  enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], description: 'New HTTP method' },
+      headers:      { type: 'object',  description: 'New HTTP headers as key-value pairs' },
+      body:         { description: 'New request body (object or string)' },
+      resolve:      { type: 'string',  description: 'Slug of next operation on success (omit to keep current)' },
+      reject:       { type: 'string',  description: 'Slug of next operation on error (omit to keep current)' },
+    },
+    required: ['operation_id'],
+  },
+  start_slug: 'build_patch',
+  operations: [
+    {
+      // Step 1: build a patch object containing only the provided fields;
+      // config sub-fields (url, method, headers, body) are merged into a
+      // single config object so partial updates work correctly
+      slug: 'build_patch',
+      type: 'run_script',
+      config: {
+        code: [
+          'module.exports = async function(data) {',
+          '  const patch = {};',
+          '  if (data.slug    !== undefined) patch.slug    = data.slug;',
+          '  if (data.resolve !== undefined) patch.resolve = data.resolve;',
+          '  if (data.reject  !== undefined) patch.reject  = data.reject;',
+          '  const configFields = ["url", "method", "headers", "body"];',
+          '  const config = {};',
+          '  for (const f of configFields) {',
+          '    if (data[f] !== undefined) config[f] = data[f];',
+          '  }',
+          '  if (Object.keys(config).length > 0) patch.config = config;',
+          '  return patch;',
+          '};',
+        ].join('\n'),
+      },
+      resolve: 'patch_operation',
+      reject: null,
+    },
+    {
+      // Step 2: PATCH the operation with the built object ($last)
       slug: 'patch_operation',
       type: 'fetch_request',
       config: {
@@ -251,9 +386,11 @@ export const EDIT_OPERATION_TOOL = {
 export const DEFAULT_TOOLS = [
   LIST_OPERATION_TYPES_TOOL,
   CREATE_TOOL_TOOL,
-  ADD_OPERATION_TOOL,
+  ADD_RUN_SCRIPT_OPERATION_TOOL,
+  ADD_FETCH_REQUEST_OPERATION_TOOL,
   EDIT_TOOL_TOOL,
-  EDIT_OPERATION_TOOL,
+  EDIT_RUN_SCRIPT_OPERATION_TOOL,
+  EDIT_FETCH_REQUEST_OPERATION_TOOL,
 ];
 
 // ─── Seeding helper ───────────────────────────────────────────────────────────
