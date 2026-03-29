@@ -72,26 +72,21 @@ export async function run_operations(operations, start_slug, initialContext = {}
         throw new Error(`Unknown operation type: "${op.type}"`);
       }
 
-      try {
-        const instance = new OpClass(op.config || {});
-        const result = await instance.run(context);
+      const instance = new OpClass(op.config || {});
 
-        context[currentSlug] = result;
-        context.$last = result;
-
-        // Follow resolve chain on success
-        currentSlug = op.resolve || null;
-
-      } catch (err) {
-        context[currentSlug] = {
-          error: true,
-          message: err.message,
-        };
-        context.$last = context[currentSlug];
-
-        // Follow reject chain on failure (null means stop)
-        currentSlug = op.reject || null;
+      let result = null;
+      let is_error = false;
+      try{
+        result = await instance.run(context);
+      }catch(err){
+          is_error = true;
+        result = err;
       }
+
+      context[currentSlug] = result;
+      context.$last = result;
+      currentSlug = is_error ? (op.reject || null) : (op.resolve || null);
+
     }
   }
 
