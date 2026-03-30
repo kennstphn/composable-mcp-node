@@ -163,7 +163,7 @@ export class App {
             }
             let run_result = await this.run_tool(composedTool, toolArgs, req);
 
-            return res.spec_data(run_result.$last,result.$vars.isError);
+            return res.spec_data(run_result.$last,run_result.$vars.isError);
 
           } catch (err) {
               return res.spec_error(err);
