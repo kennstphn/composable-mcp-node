@@ -45,14 +45,14 @@ export const CREATE_TOOL_TOOL = {
   inputSchema: {
     type: 'object',
     properties: {
-      slug:            { type: 'string', description: 'Unique identifier for the tool' },
-      name:            { type: 'string', description: 'Human-readable display name' },
+      name:            { type: 'string', description: 'Unique identifier for the tool' },
+      title:            { type: 'string', description: 'Human-readable display name' },
       description:     { type: 'string', description: 'What the tool does' },
       tool_collation:  { type: 'string', description: 'Collation (namespace) this tool belongs to' },
       inputSchema:     { type: 'object', description: 'JSON Schema for the tool inputs' },
       start_slug:      { type: 'string', description: 'Slug of the first operation to run' },
     },
-    required: ['slug', 'name', 'tool_collation', 'start_slug'],
+    required: ['title', 'name', 'tool_collation', 'start_slug'],
   },
   start_slug: 'post_tool',
   operations: [
@@ -67,7 +67,7 @@ export const CREATE_TOOL_TOOL = {
           'Content-Type': 'application/json',
         },
         body: {
-          slug:           '{{slug}}',
+          title:           '{{title}}',
           name:           '{{name}}',
           description:    '{{description}}',
           tool_collation: '{{tool_collation}}',
@@ -217,8 +217,8 @@ export const EDIT_TOOL_TOOL = {
     type: 'object',
     properties: {
       tool_id:       { type: 'integer', description: 'ID of the tool to update' },
-      slug:          { type: 'string' },
       name:          { type: 'string' },
+      title:          { type: 'string' },
       description:   { type: 'string' },
       tool_collation:{ type: 'string' },
       inputSchema:   { type: 'object' },
@@ -236,7 +236,7 @@ export const EDIT_TOOL_TOOL = {
         code: [
           'module.exports = async function(data) {',
           '  // Mutable fields of the tools collection (mirrors TOOLS_SCHEMA in schema.mjs)',
-          '  const fields = ["slug","name","description","tool_collation","inputSchema","start_slug"];',
+          '  const fields = ["title","name","description","tool_collation","inputSchema","start_slug"];',
           '  const patch = {};',
           '  for (const f of fields) {',
           '    if (data[f] !== undefined) patch[f] = data[f];',
@@ -452,7 +452,7 @@ export const LIST_COMPOSED_TOOLS_TOOL = {
       slug: 'fetch_tools',
       type: 'fetch_request',
       config: {
-        url: '{{DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{tool_collation}}&fields=id,slug,name,description,tool_collation,inputSchema',
+        url: '{{DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{tool_collation}}&fields=id,title,name,description,tool_collation,inputSchema',
         method: 'GET',
         headers: {
           'Authorization': 'Bearer {{DIRECTUS_TOKEN}}',
@@ -478,7 +478,7 @@ export const TEST_COMPOSED_TOOL_TOOL = {
     type: 'object',
     properties: {
       tool_collation: { type: 'string', description: 'The collation (namespace) the tool belongs to' },
-      tool_name:      { type: 'string', description: 'The slug of the tool to run' },
+      tool_name:      { type: 'string', description: 'The name of the tool to run' },
       arguments:      { type: 'object', description: 'Input arguments to pass to the tool', additionalProperties: true },
     },
     required: ['tool_collation', 'tool_name'],
