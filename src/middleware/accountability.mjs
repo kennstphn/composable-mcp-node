@@ -39,6 +39,8 @@ export function accountability(baseUrl){
         loadAccountability(req.token, baseUrl).then(accountability => {
             req.$accountability = accountability;
             next();
+        }).catch(err => {
+            return res.status(401).json({ state: 'invalid_token', error: err.message });
         })
 
     }

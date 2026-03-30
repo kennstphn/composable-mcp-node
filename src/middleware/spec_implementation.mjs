@@ -1,4 +1,4 @@
-import {JsonRpc_2_0 as specification, JsonRpc_2_0} from "../JsonRpc_2_0.mjs";
+import {JsonRpc_2_0 as specification} from "../JsonRpc_2_0.mjs";
 
 export function spec_implementation(req, res, next){
     // Attach the JsonRpc_2_0 utilities to the request object

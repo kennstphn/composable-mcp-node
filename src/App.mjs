@@ -39,10 +39,13 @@ export class App {
   setupMiddleware() {
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
+
+    this.app.use(spec_implementation);
+
     this.app.use(skipAuthFor(['/', '/health'])); // injects "token" into req for non-skipped routes
     this.app.use(accountability(this.DIRECTUS_BASE_URL)); // injects "$accountability" into req for routes with a token
 
-    this.app.use(spec_implementation);
+
 
   }
 
