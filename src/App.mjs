@@ -210,7 +210,7 @@ export class App {
               });
             }
             const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
-            let result = await this.executeFlow(composedTool, { $trigger: toolArgs || {}, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL, DIRECTUS_TOKEN: bearerToken } });
+            let result = await this.executeFlow(composedTool, { $trigger: toolArgs || {}, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL} }, bearerToken);
             result.$last_slug = result.$last.slug; // expose last operation slug for better debugging of composed tools
             delete(result.$last); // avoid redundancy in the main content
 
@@ -274,7 +274,7 @@ export class App {
             // served via POST /mcp/:tool_collation do NOT receive these keys.
             DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
             DIRECTUS_TOKEN: bearerToken,
-          });
+          }, bearerToken);
           const lastValue = result.$last;
           const text = typeof lastValue === 'string'
             ? lastValue
@@ -400,7 +400,7 @@ export class App {
 
         try {
           const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
-          const result = await this.executeFlow(tool, { $trigger: args, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL, DIRECTUS_TOKEN: bearerToken } });
+          const result = await this.executeFlow(tool, { $trigger: args, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL} }, bearerToken);
           const lastValue = result.$last;
           const text = typeof lastValue === 'string'
             ? lastValue
@@ -491,7 +491,7 @@ export class App {
 
       try {
         let $accountability = await loadAccountability( bearerToken, this.DIRECTUS_BASE_URL );
-        const result = await this.executeFlow(tool, { $trigger: inputData, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL, DIRECTUS_TOKEN: bearerToken } });
+        const result = await this.executeFlow(tool, { $trigger: inputData, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL} }, bearerToken);
         const lastValue = result.$last;
         const text = typeof lastValue === 'string'
           ? lastValue
@@ -513,8 +513,8 @@ export class App {
   /**
    * Execute a flow using the iterative runtime
    */
-  async executeFlow(flow, context) {
-    return run_operations(flow.operations, flow.start_slug, context);
+  async executeFlow(flow, context, bearerToken) {
+    return run_operations(flow.operations, flow.start_slug, context,bearerToken);
   }
 
   async listen() {

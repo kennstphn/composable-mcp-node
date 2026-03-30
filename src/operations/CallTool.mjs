@@ -87,7 +87,7 @@ export class CallTool {
       $trigger: resolvedInput,
       $accountability: context.$accountability,
       $env: context.$env,
-    });
+    }, bearerToken);
 
     return subContext.$last;
   }
