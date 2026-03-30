@@ -163,7 +163,7 @@ export class App {
             }
             let run_result = await this.run_tool(composedTool, toolArgs, req);
 
-            return res.mcp.tool_call_result(run_result.$last,run_result.$vars.isError);
+            return res.mcp.tool_call_result(run_result,run_result.$vars.isError);
 
           } catch (err) {
               return res.mcp.general_error(err);
@@ -181,7 +181,7 @@ export class App {
 
         try {
           const result = await this.run_default_tool(tool, args || {}, req);
-          return res.mcp.tool_call_result(result,result.$vars.isError);
+          return res.mcp.tool_call_result(result.$last,result.$vars.isError);
         } catch (err) {
             return res.mcp.general_error(err);
         }
