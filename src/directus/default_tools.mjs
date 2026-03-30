@@ -58,7 +58,7 @@ export const CREATE_TOOL_TOOL = {
       slug: 'transform_input_schema',
       type: 'run_script',
       config: {
-        code: "module.exports = async function(data) { return typeof data.inputSchema === 'object' ? JSON.stringify(data.inputSchema) : null; };",
+        code: "module.exports = async function(data) { let i=data.$trigger.inputSchema; return typeof i === 'object' ? JSON.stringify(i) : null; };",
       },
       resolve: 'post_tool',
       reject: null,
@@ -241,15 +241,19 @@ export const EDIT_TOOL_TOOL = {
       type: 'run_script',
       config: {
         code: [
-          'module.exports = async function(data) {',
-          '  // Mutable fields of the tools collection (mirrors TOOLS_SCHEMA in schema.mjs)',
-          '  const fields = ["title","name","description","tool_collation","inputSchema","start_slug"];',
-          '  const patch = {};',
-          '  for (const f of fields) {',
-          '    if (data[f] !== undefined) patch[f] = data[f];',
-          '  }',
-          '  return patch;',
-          '};',
+`
+module.exports = async function(data) {
+    const patch = {};
+    for(let field of ["name", "title", "description", "tool_collation", "start_slug", "inputSchema"]) {
+    let v = data.$trigger[field];
+        if( v !== undefined) {
+            patch[field] = field === "inputSchema" && typeof v === 'object' ? JSON.stringify(v) : v;
+        }
+    }
+    return patch;
+}
+    
+`
         ].join('\n'),
       },
       resolve: 'patch_tool',
