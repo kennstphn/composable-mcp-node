@@ -249,7 +249,7 @@ export class App {
     });
 
     // REST — list tools for a collation
-    this.app.get('/rest/:tool_collation', async (req, res) => {
+    this.app.get('/rest/b/:tool_collation', async (req, res) => {
         const { tool_collation } = req.params;
         try {
             const tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
@@ -266,7 +266,7 @@ export class App {
     });
 
     // REST — trigger a specific tool in a collation
-    this.app.post('/rest/events/:tool_collation/:tool_name', async (req, res) => {
+    this.app.post('/rest/b/events/:tool_collation/:tool_name', async (req, res) => {
 
       const { tool_collation, tool_name } = req.params;
       const inputData = req.body || {};
@@ -338,8 +338,8 @@ export class App {
         console.log(`   Initialize:         POST /initialize`);
         console.log(`   MCP (default):      POST /mcp`);
         console.log(`   MCP:                POST /mcp/{tool_collation}`);
-        console.log(`   REST tools:         GET  /rest/{tool_collation}`);
-        console.log(`   REST trigger:       POST /rest/events/{tool_collation}/{tool_name}`);
+        console.log(`   REST tools:         GET  /rest/b/{tool_collation}`);
+        console.log(`   REST trigger:       POST /rest/b/events/{tool_collation}/{tool_name}`);
         console.log(`   REST build tools:   GET  /rest/compose`);
         console.log(`   REST build.trigger: POST /rest/compose/events/{tool_name}`);
         resolve(this._server);
