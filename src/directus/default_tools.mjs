@@ -65,12 +65,12 @@ export const CREATE_TOOL_TOOL = {
           'Content-Type': 'application/json',
         },
         body: {
-          title:           '{{title}}',
-          name:           '{{name}}',
-          description:    '{{description}}',
-          tool_collation: '{{tool_collation}}',
-          inputSchema:    '{{inputSchema}}',
-          start_slug:     '{{start_slug}}',
+          title:           '{{$trigger.title}}',
+          name:           '{{$trigger.name}}',
+          description:    '{{$trigger.description}}',
+          tool_collation: '{{$trigger.tool_collation}}',
+          inputSchema:    '{{$trigger.inputSchema}}',
+          start_slug:     '{{$trigger.start_slug}}',
         },
       },
       resolve: null,
@@ -122,12 +122,12 @@ module.exports = async function(data) {
           'Content-Type': 'application/json',
         },
         body: {
-          tool:    '{{tool_id}}',
-          slug:    '{{slug}}',
+          tool:    '{{$trigger.tool_id}}',
+          slug:    '{{$trigger.slug}}',
           type:    'run_script',
-          config:  { code: '{{code}}' },
-          resolve: '{{resolve}}',
-          reject:  '{{reject}}',
+          config:  { code: '{{$trigger.code}}' },
+          resolve: '{{$trigger.resolve}}',
+          reject:  '{{$trigger.reject}}',
         },
       },
       resolve: null,
@@ -251,7 +251,7 @@ export const EDIT_TOOL_TOOL = {
       slug: 'patch_tool',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools/{{tool_id}}',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools/{{$trigger.tool_id}}',
         method: 'PATCH',
         headers: {
           'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
@@ -308,7 +308,7 @@ export const EDIT_RUN_SCRIPT_OPERATION_TOOL = {
       slug: 'patch_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{operation_id}}',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
         method: 'PATCH',
         headers: {
           'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
@@ -375,7 +375,7 @@ export const EDIT_FETCH_REQUEST_OPERATION_TOOL = {
       slug: 'patch_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{operation_id}}',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
         method: 'PATCH',
         headers: {
           'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
@@ -450,7 +450,7 @@ export const LIST_COMPOSED_TOOLS_TOOL = {
       slug: 'fetch_tools',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{tool_collation}}&fields=id,title,name,description,tool_collation,inputSchema',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{$trigger.tool_collation}}&fields=id,title,name,description,tool_collation,inputSchema',
         method: 'GET',
         headers: {
           'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
@@ -531,7 +531,7 @@ export const DELETE_COMPOSED_TOOL_TOOL = {
       slug: 'delete_tool',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools/{{tool_id}}',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools/{{$trigger.tool_id}}',
         method: 'DELETE',
         headers: {
           'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
