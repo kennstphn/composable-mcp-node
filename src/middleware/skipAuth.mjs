@@ -31,8 +31,8 @@ export const skipAuthFor = (paths = []) => {
     return (req, res, next) => {
         const currentPath = req.path.replace(/\/$/, '');
 
-        // Check for exact match or prefix match
-        if (normalizedPaths.some(p => currentPath === p || currentPath.startsWith(p))) {
+        // Check for exact match only (you can enhance this to support patterns if needed)
+        if (normalizedPaths.some(p => currentPath === p)) {
             return next(); // skip auth
         }
 
