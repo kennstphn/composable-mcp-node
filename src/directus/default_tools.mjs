@@ -58,7 +58,7 @@ export const CREATE_TOOL_TOOL = {
       slug: 'transform_input_schema',
       type: 'run_script',
       config: {
-        code: "module.exports = async function(data) { return typeof data.inputSchema === 'object' ? JSON.stringify(data.inputSchema) : null; };",
+        code: "module.exports = async function(data) { let i=data.$trigger.inputSchema; return typeof i === 'object' ? JSON.stringify(i) : null; };",
       },
       resolve: 'post_tool',
       reject: null,
