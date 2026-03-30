@@ -138,12 +138,12 @@ export class App {
 
 
       if (method === 'tools/list') {
-          return res.mcp.general_result({tools:this.default_tools});
+          return res.mcp.general_result(this.default_tools);
       }
 
       if (method === 'tools/call') {
         const { name, arguments: args } = params || {};
-        const tool = DEFAULT_TOOLS.find(t => t.slug === name || t.name === name);
+        const tool = DEFAULT_TOOLS.find(t => t.name === name);
 
         if (!tool) {
             return res.mcp.general_error(new InvalidParamsError(`Tool "${name}" not found`));
@@ -157,7 +157,7 @@ export class App {
           }
           try {
             const collationTools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
-            const composedTool = collationTools.find(t => t.slug === tool_name || t.name === tool_name);
+            const composedTool = collationTools.find(t => t.name === tool_name );
             if (!composedTool) {
                 return res.mcp.general_error(new InvalidParamsError(`Tool "${tool_name}" not found in collation "${tool_collation}"`))
             }
@@ -238,7 +238,7 @@ export class App {
 
       if (method === 'tools/call') {
         const { name, arguments: args } = params || {};
-        const tool = tools.find(t => (t.slug || t.name) === name);
+        const tool = tools.find(t =>  t.name === name);
 
         try{
             let result = await this.run_tool(tool, args, req);
@@ -291,7 +291,7 @@ export class App {
     this.app.post('/rest/compose/events/:tool_name', async (req, res) => {
         const { tool_name } = req.params;
         const inputData = req.body || {};
-        const tool = DEFAULT_TOOLS.find(t => t.slug === tool_name || t.name === tool_name);
+        const tool = DEFAULT_TOOLS.find(t => t.name === tool_name);
         if (!tool) {
             return res.mcp.general_error(new InvalidParamsError(`Tool "${tool_name}" not found`));
         }
@@ -304,7 +304,7 @@ export class App {
                     return res.mcp.general_error(new InvalidParamsError(`tool_collation and tool_name are required in arguments`))
                 }
                 const collationTools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
-                const composedTool = collationTools.find(t => (t.slug || t.name) === composed_tool_name);
+                const composedTool = collationTools.find(t => t.name === composed_tool_name);
                 if (!composedTool) {
                     return res.mcp.general_error(new InvalidParamsError(`Tool "${composed_tool_name}" not found in collation "${tool_collation}"`));
                 }
@@ -364,7 +364,7 @@ export class App {
       let tools;
       tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, token, tool_collation);
 
-      const tool = tools.find(t => (t.slug || t.name) === tool_name);
+      const tool = tools.find(t => t.name === tool_name);
       if (!tool) {
           throw new InvalidParamsError(`Tool "${tool_name}" not found in collation "${tool_collation}"`);
       }
@@ -410,7 +410,8 @@ export class App {
   get default_tools(){
       return {
           tools: DEFAULT_TOOLS.map(t => ({
-              name: t.slug,
+              name: t.name,
+              title: t.title,
               description: t.description || '',
               inputSchema: t.inputSchema || { type: 'object', properties: {} },
           })),

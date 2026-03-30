@@ -18,8 +18,8 @@
 // ─── list_operation_types ─────────────────────────────────────────────────────
 
 export const LIST_OPERATION_TYPES_TOOL = {
-  slug: 'list_operation_types',
-  name: 'List Operation Types',
+  name: 'list_operation_types',
+  title: 'List Operation Types',
   description: 'Returns the operation types supported by this server.',
   inputSchema: { type: 'object', properties: {} },
   start_slug: 'return_types',
@@ -39,8 +39,8 @@ export const LIST_OPERATION_TYPES_TOOL = {
 // ─── create_tool ──────────────────────────────────────────────────────────────
 
 export const CREATE_TOOL_TOOL = {
-  slug: 'create_tool',
-  name: 'Create Tool',
+  name: 'create_tool',
+  title: 'Create Tool',
   description: 'Creates a new tool definition in Directus.',
   inputSchema: {
     type: 'object',
@@ -84,8 +84,8 @@ export const CREATE_TOOL_TOOL = {
 // ─── add_run_script_operation ─────────────────────────────────────────────────
 
 export const ADD_RUN_SCRIPT_OPERATION_TOOL = {
-  slug: 'add_run_script_operation',
-  name: 'Add Run Script Operation',
+  name: 'add_run_script_operation',
+  title: 'Add Run Script Operation',
   description: 'Adds a run_script operation step to an existing tool.',
   inputSchema: {
     type: 'object',
@@ -141,8 +141,8 @@ module.exports = async function(data) {
 // ─── add_fetch_request_operation ──────────────────────────────────────────────
 
 export const ADD_FETCH_REQUEST_OPERATION_TOOL = {
-  slug: 'add_fetch_request_operation',
-  name: 'Add Fetch Request Operation',
+  name: 'add_fetch_request_operation',
+  title: 'Add Fetch Request Operation',
   description: 'Adds a fetch_request operation step to an existing tool.',
   inputSchema: {
     type: 'object',
@@ -210,8 +210,8 @@ export const ADD_FETCH_REQUEST_OPERATION_TOOL = {
 // ─── edit_tool ────────────────────────────────────────────────────────────────
 
 export const EDIT_TOOL_TOOL = {
-  slug: 'edit_tool',
-  name: 'Edit Tool',
+  name: 'edit_tool',
+  title: 'Edit Tool',
   description: 'Updates fields on an existing tool.  Only supplied fields are changed.',
   inputSchema: {
     type: 'object',
@@ -270,8 +270,8 @@ export const EDIT_TOOL_TOOL = {
 // ─── edit_run_script_operation ────────────────────────────────────────────────
 
 export const EDIT_RUN_SCRIPT_OPERATION_TOOL = {
-  slug: 'edit_run_script_operation',
-  name: 'Edit Run Script Operation',
+  name: 'edit_run_script_operation',
+  title: 'Edit Run Script Operation',
   description: 'Updates a run_script operation step.  Only supplied fields are changed.',
   inputSchema: {
     type: 'object',
@@ -327,8 +327,8 @@ export const EDIT_RUN_SCRIPT_OPERATION_TOOL = {
 // ─── edit_fetch_request_operation ─────────────────────────────────────────────
 
 export const EDIT_FETCH_REQUEST_OPERATION_TOOL = {
-  slug: 'edit_fetch_request_operation',
-  name: 'Edit Fetch Request Operation',
+  name: 'edit_fetch_request_operation',
+  title: 'Edit Fetch Request Operation',
   description: 'Updates a fetch_request operation step.  Only supplied fields are changed.',
   inputSchema: {
     type: 'object',
@@ -394,8 +394,8 @@ export const EDIT_FETCH_REQUEST_OPERATION_TOOL = {
 // ─── list_collations ──────────────────────────────────────────────────────────
 
 export const LIST_COLLATIONS_TOOL = {
-  slug: 'list_collations',
-  name: 'List Collations',
+  name: 'list_collations',
+  title: 'List Collations',
   description: 'Returns the distinct collation names (namespaces) that have tools stored in Directus.',
   inputSchema: { type: 'object', properties: {} },
   start_slug: 'fetch_collations',
@@ -436,8 +436,8 @@ export const LIST_COLLATIONS_TOOL = {
 // ─── list_composed_tools ──────────────────────────────────────────────────────
 
 export const LIST_COMPOSED_TOOLS_TOOL = {
-  slug: 'list_composed_tools',
-  name: 'List Composed Tools',
+  name: 'list_composed_tools',
+  title: 'List Composed Tools',
   description: 'Returns the tools stored in Directus for the specified collation.',
   inputSchema: {
     type: 'object',
@@ -471,8 +471,8 @@ export const LIST_COMPOSED_TOOLS_TOOL = {
 // it exists only so that tools/list can return a proper tool descriptor.
 
 export const TEST_COMPOSED_TOOL_TOOL = {
-  slug: 'test_composed_tool',
-  name: 'Test Composed Tool',
+  name: 'test_composed_tool',
+  title: 'Test Composed Tool',
   description: 'Fetches a tool stored in Directus and executes it with the supplied arguments.',
   inputSchema: {
     type: 'object',
@@ -499,8 +499,8 @@ export const TEST_COMPOSED_TOOL_TOOL = {
 // ─── delete_composed_tool ─────────────────────────────────────────────────────
 
 export const DELETE_COMPOSED_TOOL_TOOL = {
-  slug: 'delete_composed_tool',
-  name: 'Delete Composed Tool',
+  name: 'delete_composed_tool',
+  title: 'Delete Composed Tool',
   description: 'Permanently deletes a tool from Directus. Requires explicit confirmation via the confirm field.',
   inputSchema: {
     type: 'object',

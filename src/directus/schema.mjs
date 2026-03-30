@@ -24,13 +24,13 @@ export const TOOLS_SCHEMA = {
       schema: { is_primary_key: true, has_auto_increment: true },
     },
     {
-      field: 'slug',
+      field: 'name',
       type: 'string',
-      meta: { required: true, interface: 'input', options: { placeholder: 'my-tool' } },
+      meta: { required: true, interface: 'input', options: { placeholder: 'my_tool_name' } },
       schema: { is_nullable: false },
     },
     {
-      field: 'name',
+      field: 'title',
       type: 'string',
       meta: { required: true, interface: 'input' },
       schema: { is_nullable: false },
