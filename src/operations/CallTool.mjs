@@ -1,3 +1,6 @@
+import {interpolateValue} from "../functions/interpolateValue.mjs";
+import {fetchToolsForCollation} from "../functions/get_tools_with_operations.mjs";
+
 /**
  * CallTool operation — calls another Directus-backed tool from within a flow.
  *
@@ -18,43 +21,6 @@
  * The operation resolves with the final `$last` value produced by the target tool's flow.
  */
 
-import Mustache from 'mustache';
-
-// Disable HTML escaping — this is an HTTP API context, not HTML generation.
-Mustache.escape = (text) => text;
-
-/**
- * Render a Mustache `template` string against `context`.
- * When the entire template is a single `{{key}}` placeholder the raw context
- * value is returned as-is (preserving objects/arrays/numbers).
- */
-function interpolate(template, context) {
-  if (typeof template !== 'string') return template;
-
-  const exact = /^\{\{\s*(\$?[\w.]+)\s*\}\}$/.exec(template);
-  if (exact) {
-    const value = exact[1].split('.').reduce((obj, k) => obj?.[k], context);
-    return value !== undefined ? value : '';
-  }
-
-  return Mustache.render(template, context);
-}
-
-/**
- * Recursively render all string leaves in a value.
- */
-function interpolateValue(value, context) {
-  if (typeof value === 'string') return interpolate(value, context);
-  if (Array.isArray(value)) return value.map(item => interpolateValue(item, context));
-  if (value !== null && typeof value === 'object') {
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-      out[k] = interpolateValue(v, context);
-    }
-    return out;
-  }
-  return value;
-}
 
 export class CallTool {
   constructor(config) {
@@ -68,7 +34,7 @@ export class CallTool {
     }
   }
 
-  async run(context) {
+  async run(context, bearerToken) {
     const { tool_collation, tool_slug, input } = this.config;
 
     if (!tool_collation) {
@@ -78,7 +44,6 @@ export class CallTool {
       throw new Error("CallTool: 'tool_slug' property is required in config");
     }
 
-    const bearerToken = context?.$env?.DIRECTUS_TOKEN;
     const baseUrl = context?.$env?.DIRECTUS_BASE_URL;
 
     if (!bearerToken) {
@@ -91,29 +56,8 @@ export class CallTool {
     // Resolve input values against the current context before passing them to the sub-tool
     const resolvedInput = input !== undefined ? interpolateValue(input, context) : {};
 
-    // Fetch the target tool definition from Directus
-    const url = new URL('/items/tools', baseUrl);
-    url.searchParams.set('fields', '*,operations.*');
-    url.searchParams.set('filter[tool_collation][_eq]', tool_collation);
-
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Authorization': `Bearer ${bearerToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (response.status === 401 || response.status === 403) {
-      const err = new Error(`CallTool: Directus authorization failed (HTTP ${response.status})`);
-      err.status = response.status;
-      throw err;
-    }
-
-    if (!response.ok) {
-      throw new Error(`CallTool: Directus returned HTTP ${response.status}`);
-    }
-
-    const { data } = await response.json();
+    // Fetch tools for the specified collation (and slug, to minimize data transfer)
+    let data = fetchToolsForCollation(context.$env.DIRECTUS_BASE_URL, bearerToken, tool_collation, tool_slug);
     const tools = data || [];
 
     // Parse inputSchema strings if needed
@@ -144,14 +88,6 @@ export class CallTool {
       $accountability: context.$accountability,
       $env: context.$env,
     });
-
-    if (subContext.$error) {
-      throw subContext.$error;
-    }
-
-    if (subContext.$last instanceof Error) {
-      throw subContext.$last;
-    }
 
     return subContext.$last;
   }
