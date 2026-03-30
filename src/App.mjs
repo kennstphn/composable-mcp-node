@@ -163,7 +163,7 @@ export class App {
             }
             let run_result = await this.run_tool(composedTool, toolArgs, req);
 
-            return res.spec_data(run_result.$last);
+            return res.spec_data(run_result.$last,result.$vars.isError);
 
           } catch (err) {
               return res.spec_error(err);
@@ -181,7 +181,7 @@ export class App {
 
         try {
           const result = await this.run_default_tool(tool, args || {}, req);
-          return res.spec_data(result);
+          return res.spec_data(result,result.$vars.isError);
         } catch (err) {
             return res.spec_error(err);
         }
@@ -242,7 +242,7 @@ export class App {
 
         try{
             let result = await this.run_tool(tool, args, req);
-            return res.spec_data(result.$last);
+            return res.spec_data(result.$last,result.$vars.isError);
         }catch (err){
             return res.spec_error(err);
         }
@@ -276,7 +276,7 @@ export class App {
       try{
           let tool = await this.get_tools(req.token, tool_collation, tool_name);
           let result = await this.run_tool(tool, inputData,req)
-          return res.spec_data(result.$last);
+          return res.spec_data(result.$last,result.$vars.isError);
       }catch (err){
           return res.spec_error(err);
       }
@@ -311,12 +311,12 @@ export class App {
 
                 let run_result = await this.run_tool(composedTool, toolArgs, req);
 
-                return res.spec_data(run_result.$last);
+                return res.spec_data(run_result.$last,run_result.$vars.isError);
 
             }
 
             let result = await this.run_default_tool(tool, inputData, req);
-            return res.spec_data(result.$last);
+            return res.spec_data(result.$last,result.$vars.isError);
         } catch (err) {
             return res.spec_error(err);
         }
@@ -393,11 +393,17 @@ export class App {
       // we need to inject the directus data from the request to the inputData
       // so that it can be used in the operations of the default tool, for example, in fetch_request operations.
       // this is safe because default tools are defined in the filesystem by trusted server code, not user-supplied.
-        return await this.run_tool(tool, {
+        let result =  await this.run_tool(tool, {
             ...inputData,
             DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
             DIRECTUS_TOKEN: req.token,
         }, req);
+
+        // remove the DIRECTUS_* from the result.$trigger to avoid leaking them to the client in case the tool returns the input as output
+        if(result && result.$trigger){
+            delete result.$trigger.DIRECTUS_BASE_URL;
+            delete result.$trigger.DIRECTUS_TOKEN;
+        }
   }
 
   get default_tools(){

@@ -28,7 +28,9 @@ export async function run_operations(operations, start_slug, initialContext = {}
   // 2. Initialise context from provided seed
   const context = {
     $last: null,
-    $vars: {},
+    $vars: {
+      isError:false // lets operations set this to true to indicate an error state for the tool response.
+    },
     ...initialContext,
   };
 

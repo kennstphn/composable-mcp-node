@@ -55,18 +55,23 @@ export function respond_with_error(res, id, error){
         id,
         error: {
             code: error.code,
-            message: error.message,
-            data: error.data || null
+            message: error.message
         }
     });
 }
 
-export function respond_with_data(res, id, data){
-    return res.json({
+export function respond_with_data(res, id, data, isError){
+    let output = {
         jsonrpc: '2.0',
         id,
-        result: data
-    });
+        result: {
+            content:[{type:"text",text: JSON.stringify(data)}]
+        }
+    };
+    if(isError){
+        output.result.isError = true;
+    }
+    return res.json(output);
 }
 
 export class Response{
@@ -79,8 +84,8 @@ export class Response{
         return respond_with_error(this.res, this.id, error);
     }
 
-    data(data){
-        return respond_with_data(this.res, this.id, data);
+    data(data, isError){
+        return respond_with_data(this.res, this.id, data, isError);
     }
 
     without_data(code){
