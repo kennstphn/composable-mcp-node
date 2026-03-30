@@ -1,8 +1,9 @@
 import {JsonRpc_2_0 as specification} from "../JsonRpc_2_0.mjs";
 
 export function spec_implementation(req, res, next){
+    let {id} = req.body;
     // Attach the JsonRpc_2_0 utilities to the request object
-    const response = new specification.Response(res);
+    const response = new specification.Response(res, id);
 
     res.spec_data = (o) => response.data(o);
     res.spec_error = (o) => response.error(o);
