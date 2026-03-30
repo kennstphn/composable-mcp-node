@@ -54,9 +54,9 @@ export function respond_with_error(res, id, error){
         jsonrpc: '2.0',
         id,
         error: {
-            code: this.code,
-            message: this.message,
-            data: this.data
+            code: error.code,
+            message: error.message,
+            data: error.data || null
         }
     });
 }
