@@ -12,7 +12,7 @@ export const requireAuth = (req, res, next) => {
     const bearerToken = extractBearerToken(req);
 
     if (!bearerToken) {
-        return res.json({ state: 'needed' });
+        return res.status(401).json({ state: 'needed' });
     }
 
     // Inject the token into the request object
