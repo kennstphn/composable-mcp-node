@@ -41,7 +41,6 @@ export function accountability(baseUrl){
             next();
         }).catch(err => {
             res.status(401).json({ state: 'invalid_token', error: err.message });
-            next();
         });
 
     }
