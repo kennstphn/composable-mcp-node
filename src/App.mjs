@@ -150,7 +150,7 @@ export class App {
         }
 
         // ── test_composed_tool: fetch tool from Directus and execute it ─────────
-        if (tool.slug === 'test_composed_tool') {
+        if (tool.name === 'test_composed_tool') {
           const { tool_collation, tool_name, arguments: toolArgs } = args || {};
           if (!tool_collation || !tool_name) {
               return res.mcp.general_error(new InvalidParamsError(`tool_collation and tool_name are required in arguments`))
@@ -229,7 +229,7 @@ export class App {
       if (method === 'tools/list') {
           return res.mcp.general_result({
               tools: tools.map(t => ({
-                  name: t.slug || t.name,
+                  name: t.name,
                   description: t.description || '',
                   inputSchema: t.inputSchema || { type: 'object', properties: {} },
               })),
@@ -258,7 +258,7 @@ export class App {
             const tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
             return res.mcp.general_result({
               tools: tools.map(t => ({
-                name: t.slug || t.name,
+                name: t.name,
                 description: t.description || '',
                 inputSchema: t.inputSchema || { type: 'object', properties: {} },
               }))
@@ -390,6 +390,7 @@ export class App {
   }
 
   async run_default_tool(tool, inputData, req){
+      console.log(`Running default tool "${tool.name}" with input:`, inputData);
       // we need to inject the directus data from the request to the inputData
       // so that it can be used in the operations of the default tool, for example, in fetch_request operations.
       // this is safe because default tools are defined in the filesystem by trusted server code, not user-supplied.
