@@ -404,6 +404,7 @@ export class App {
             delete result.$trigger.DIRECTUS_BASE_URL;
             delete result.$trigger.DIRECTUS_TOKEN;
         }
+        return result;
   }
 
   get default_tools(){
