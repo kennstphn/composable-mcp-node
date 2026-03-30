@@ -1,41 +1,20 @@
 import express from 'express';
 import Ajv from 'ajv';
-import { run_operations } from './functions/run_operations.mjs';
-import { initializeSchema, checkInitializationState } from './directus/schema.mjs';
-import { DEFAULT_TOOLS } from './directus/default_tools.mjs';
-import { setupPermissions } from './directus/permissions.mjs';
+import {run_operations} from './functions/run_operations.mjs';
+import {checkInitializationState, initializeSchema} from './directus/schema.mjs';
+import {DEFAULT_TOOLS} from './directus/default_tools.mjs';
+import {setupPermissions} from './directus/permissions.mjs';
 import {fetchToolsForCollation} from "./functions/get_tools_with_operations.mjs";
-import { buildLandingPage } from './functions/buildLandingPage.mjs';
-
+import {buildLandingPage} from './functions/buildLandingPage.mjs';
 const ajv = new Ajv({ allErrors: true, coerceTypes: false });
+import {
+    MethodNotFoundError,
+    InvalidParamsError
+} from "./JsonRpc_2_0.mjs";
+import {skipAuthFor} from "./middleware/skipAuth.mjs";
+import {accountability} from "./middleware/accountability.mjs";
+import {spec_implementation} from "./middleware/spec_implementation.mjs";
 
-
-/**
- * Extract the Bearer token from the Authorization header, or return null.
- */
-function extractBearerToken(req) {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
-  return authHeader.slice(7);
-}
-
-async function loadAccountability(bearerToken, DIRECTUS_BASE_URL) {
-  let url = new URL('/users/me', DIRECTUS_BASE_URL);
-    url.searchParams.set('fields', '*,oauth.*');
-  const response = await fetch(url,{
-    headers:{
-      'Authorization': `Bearer ${bearerToken}`,
-      'Content-Type': 'application/json',
-    }
-  });
-
-  if(!response.ok){
-    throw new Error(`Failed to fetch user info: ${response.status}`);
-  }
-  return response.json().then(r => r.data);
-}
 
 export class App {
 
@@ -60,6 +39,11 @@ export class App {
   setupMiddleware() {
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
+    this.app.use(skipAuthFor(['/', '/health'])); // injects "token" into req for non-skipped routes
+    this.app.use(accountability(this.DIRECTUS_BASE_URL)); // injects "$accountability" into req for routes with a token
+
+    this.app.use(spec_implementation);
+
   }
 
   setupRoutes() {
@@ -71,13 +55,9 @@ export class App {
 
     // Initialization state check
     this.app.get('/initialize', async (req, res) => {
-      const bearerToken = extractBearerToken(req);
-      if (!bearerToken) {
-        return res.json({ state: 'needed' });
-      }
 
       try {
-        const result = await checkInitializationState(this.DIRECTUS_BASE_URL, bearerToken);
+        const result = await checkInitializationState(this.DIRECTUS_BASE_URL, req.token);
         return res.json({
           state: result.state,
           ...(result.details ? { details: result.details } : {}),
@@ -101,15 +81,11 @@ export class App {
 
     // Initialize — create Directus collections, seed default tools, set up permissions
     this.app.post('/initialize', async (req, res) => {
-      const bearerToken = extractBearerToken(req);
-      if (!bearerToken) {
-        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
-      }
 
       // Check current state first; block early if migration is needed
       let currentState;
       try {
-        currentState = await checkInitializationState(this.DIRECTUS_BASE_URL, bearerToken);
+        currentState = await checkInitializationState(this.DIRECTUS_BASE_URL, req.token);
       } catch (err) {
         return res.status(err.status || 500).json({ ok: false, error: err.message });
       }
@@ -125,8 +101,8 @@ export class App {
 
       const results = {};
       try {
-        results.schema      = await initializeSchema(this.DIRECTUS_BASE_URL, bearerToken);
-        results.permissions  = await setupPermissions(this.DIRECTUS_BASE_URL, bearerToken);
+        results.schema      = await initializeSchema(this.DIRECTUS_BASE_URL, req.token);
+        results.permissions  = await setupPermissions(this.DIRECTUS_BASE_URL, req.token);
         return res.json({ ok: true, ...results });
       } catch (err) {
         return res.status(err.status || 500).json({
@@ -142,167 +118,73 @@ export class App {
       const { jsonrpc, id, method, params } = req.body || {};
 
       if (method === 'initialize') {
-        return res.json({
-          jsonrpc: '2.0',
-          id,
-          result: {
-            protocolVersion: '2024-11-05',
-            capabilities: { tools: { list: true, call: true } },
-            serverInfo: { name: 'composable-mcp', version: '0.1.0' },
-          },
-        });
+          return res.spec_data({
+                protocolVersion: '2024-11-05',
+                capabilities: { tools: { list: true, call: true } },
+                serverInfo: { name: 'composable-mcp', version: '0.1.0' },
+          })
       }
 
       if (method === 'notifications/initialized') {
-        return res.status(204).end();
+        return res.spec_without_data(204);
       }
 
       if (method === 'ping') {
-        return res.json({ jsonrpc: '2.0', id, result: {} });
+          return res.spec_data({});
       }
 
-      const bearerToken = extractBearerToken(req);
-      if (!bearerToken) {
-        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
-      }
 
       if (method === 'tools/list') {
-        return res.json({
-          jsonrpc: '2.0',
-          id,
-          result: {
-            tools: DEFAULT_TOOLS.map(t => ({
-              name: t.slug,
-              description: t.description || '',
-              inputSchema: t.inputSchema || { type: 'object', properties: {} },
-            })),
-          },
-        });
+          return res.spec_data(this.default_tools);
       }
 
       if (method === 'tools/call') {
         const { name, arguments: args } = params || {};
-
-        // ── test_composed_tool: fetch tool from Directus and execute it ─────────
-        if (name === 'test_composed_tool') {
-          const { tool_collation, tool_name, arguments: toolArgs } = args || {};
-          if (!tool_collation || !tool_name) {
-            return res.json({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                content: [{ type: 'text', text: 'tool_collation and tool_name are required' }],
-                isError: true,
-              },
-            });
-          }
-          try {
-            const collationTools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, bearerToken, tool_collation);
-            const composedTool = collationTools.find(t => (t.slug || t.name) === tool_name);
-            if (!composedTool) {
-              return res.json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: `Tool "${tool_name}" not found in collation "${tool_collation}"` }],
-                  isError: true,
-                },
-              });
-            }
-            const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
-            let result = await this.executeFlow(composedTool, { $trigger: toolArgs || {}, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL} }, bearerToken);
-            result.$last_slug = result.$last.slug; // expose last operation slug for better debugging of composed tools
-            delete(result.$last); // avoid redundancy in the main content
-
-            return res.json({
-              jsonrpc: '2.0',
-              id,
-              result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] },
-            });
-          } catch (err) {
-            console.error('test_composed_tool failed:', err);
-            return res.json({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                content: [{ type: 'text', text: err.message }],
-                isError: true,
-              },
-            });
-          }
-        }
-
-        const tool = DEFAULT_TOOLS.find(t => t.slug === name);
+        const tool = DEFAULT_TOOLS.find(t => t.slug === name || t.name === name);
 
         if (!tool) {
-          return res.json({
-            jsonrpc: '2.0',
-            id,
-            result: {
-              content: [{ type: 'text', text: `Tool "${name}" not found` }],
-              isError: true,
-            },
-          });
+            return res.spec_error(new InvalidParamsError(`Tool "${name}" not found`));
         }
+
+        // ── test_composed_tool: fetch tool from Directus and execute it ─────────
+        if (tool.slug === 'test_composed_tool') {
+          const { tool_collation, tool_name, arguments: toolArgs } = args || {};
+          if (!tool_collation || !tool_name) {
+              return res.spec_error(new InvalidParamsError(`tool_collation and tool_name are required in arguments`))
+          }
+          try {
+            const collationTools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
+            const composedTool = collationTools.find(t => t.slug === tool_name || t.name === tool_name);
+            if (!composedTool) {
+                return res.spec_error(new InvalidParamsError(`Tool "${tool_name}" not found in collation "${tool_collation}"`))
+            }
+            let run_result = await this.run_tool(composedTool, toolArgs, req);
+
+            return res.spec_data(run_result.$last);
+
+          } catch (err) {
+              return res.spec_error(err);
+          }
+        }
+
 
         if (tool.inputSchema) {
           const validate = ajv.compile(tool.inputSchema);
           if (!validate(args || {})) {
             const messages = (validate.errors || []).map(e => `${e.instancePath} ${e.message}`.trim()).join('; ');
-            return res.json({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                content: [{ type: 'text', text: `Invalid input: ${messages}` }],
-                isError: true,
-              },
-            });
+            return res.spec_error( new InvalidParamsError(messages) );
           }
         }
 
         try {
-          const result = await this.executeFlow(tool, {
-            ...(args || {}),
-            // DIRECTUS_BASE_URL and DIRECTUS_TOKEN are injected so that
-            // fetch_request operations can use {{DIRECTUS_BASE_URL}} and
-            // {{DIRECTUS_TOKEN}} template interpolation.
-            //
-            // Security note: these keys are also technically visible to
-            // run_script operations via the `data` argument.  This is
-            // acceptable because default tools are filesystem-defined
-            // (trusted server code), not user-supplied.  User-defined tools
-            // served via POST /mcp/:tool_collation do NOT receive these keys.
-            DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
-            DIRECTUS_TOKEN: bearerToken,
-          }, bearerToken);
-          const lastValue = result.$last;
-          const text = typeof lastValue === 'string'
-            ? lastValue
-            : JSON.stringify(lastValue, null, 2);
-
-          return res.json({
-            jsonrpc: '2.0',
-            id,
-            result: { content: [{ type: 'text', text }] },
-          });
+          const result = await this.run_default_tool(tool, args || {}, req);
+          return res.spec_data(result);
         } catch (err) {
-          console.error(`Default tool "${name}" failed:`, err);
-          return res.json({
-            jsonrpc: '2.0',
-            id,
-            result: {
-              content: [{ type: 'text', text: err.message }],
-              isError: true,
-            },
-          });
+            return res.spec_error(err);
         }
       }
 
-      return res.status(400).json({
-        jsonrpc: '2.0',
-        id,
-        error: { code: -32601, message: `Method not found: ${method}` },
-      });
+      return res.spec_error(new MethodNotFoundError(`Method not found: ${method}`));
     });
 
     // MCP endpoint — per-request Directus fetch using the caller's Bearer token
@@ -310,225 +192,156 @@ export class App {
       const { jsonrpc, id, method, params } = req.body || {};
 
       if (method === 'initialize') {
-        return res.json({
-          jsonrpc: '2.0',
-          id,
-          result: {
-            protocolVersion: '2024-11-05',
-            capabilities: {
-              tools: {
-                list: true,
-                call: true,
+          return res.spec_data({
+              protocolVersion: '2024-11-05',
+              capabilities: {
+                  tools: {
+                      list: true,
+                      call: true,
+                  },
               },
-            },
-            serverInfo: {
-              name: 'composable-mcp',
-              version: '0.1.0',
-            },
-          },
-        });
+              serverInfo: {
+                  name: 'composable-mcp',
+                  version: '0.1.0',
+              },
+          })
       }
 
       if (method === 'notifications/initialized') {
-        return res.status(204).end();
+          return res.spec_without_data(204);
       }
 
       if (method === 'ping') {
-        return res.json({
-          jsonrpc: '2.0',
-          id,
-          result: {},
-        });
-      }
-
-      const bearerToken = extractBearerToken(req);
-      if ( !bearerToken ) {
-        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+          return res.spec_data({});
       }
 
       const { tool_collation } = req.params;
       let tools;
       try {
-        tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, bearerToken, tool_collation);
+        tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
       } catch (err) {
-        return res.status(err.status || 500).json({ error: err.message });
+          return res.spec_error(err);
       }
 
       if (method === 'tools/list') {
-        return res.json({
-          jsonrpc: '2.0',
-          id,
-          result: {
-            tools: tools.map(t => ({
-              name: t.slug || t.name,
-              description: t.description || '',
-              inputSchema: t.inputSchema || { type: 'object', properties: {} },
-            })),
-          },
-        });
+          return res.spec_data({
+              tools: tools.map(t => ({
+                  name: t.slug || t.name,
+                  description: t.description || '',
+                  inputSchema: t.inputSchema || { type: 'object', properties: {} },
+              })),
+          });
       }
 
       if (method === 'tools/call') {
         const { name, arguments: args } = params || {};
         const tool = tools.find(t => (t.slug || t.name) === name);
 
-        if (!tool) {
-          return res.json({
-            jsonrpc: '2.0',
-            id,
-            result: {
-              content: [{ type: 'text', text: `Tool "${name}" not found in collation "${tool_collation}"` }],
-              isError: true,
-            },
-          });
-        }
-
-        if (tool.inputSchema) {
-          const validate = ajv.compile(tool.inputSchema);
-          if (!validate(args || {})) {
-            const messages = (validate.errors || []).map(e => `${e.instancePath} ${e.message}`.trim()).join('; ');
-            return res.json({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                content: [{ type: 'text', text: `Invalid input: ${messages}` }],
-                isError: true,
-              },
-            });
-          }
-        }
-
-        try {
-          const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
-          const result = await this.executeFlow(tool, { $trigger: args, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL} }, bearerToken);
-          const lastValue = result.$last;
-          const text = typeof lastValue === 'string'
-            ? lastValue
-            : JSON.stringify(lastValue, null, 2);
-
-          return res.json({
-            jsonrpc: '2.0',
-            id,
-            result: { content: [{ type: 'text', text }] },
-          });
-        } catch (err) {
-          console.error(`Tool "${name}" failed:`, err);
-          return res.json({
-            jsonrpc: '2.0',
-            id,
-            result: {
-              content: [{ type: 'text', text: err.message }],
-              isError: true,
-            },
-          });
+        try{
+            let result = await this.run_tool(tool, args, req);
+            return res.spec_data(result.$last);
+        }catch (err){
+            return res.spec_error(err);
         }
       }
 
-      return res.status(400).json({
-        jsonrpc: '2.0',
-        id,
-        error: { code: -32601, message: `Method not found: ${method}` },
-      });
+      return res.spec_error(new MethodNotFoundError(`Method not found: ${method}`));
     });
 
     // REST — list tools for a collation
     this.app.get('/rest/:tool_collation', async (req, res) => {
-      const bearerToken = extractBearerToken(req);
-      if (!bearerToken) {
-        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
-      }
-
-      const { tool_collation } = req.params;
-      try {
-        const tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, bearerToken, tool_collation);
-        return res.json({
-          tools: tools.map(t => ({
-            name: t.slug || t.name,
-            description: t.description || '',
-            inputSchema: t.inputSchema || { type: 'object', properties: {} },
-          })),
-        });
-      } catch (err) {
-        return res.status(err.status || 500).json({ error: err.message });
-      }
+        const { tool_collation } = req.params;
+        try {
+            const tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
+            return res.spec_data({
+              tools: tools.map(t => ({
+                name: t.slug || t.name,
+                description: t.description || '',
+                inputSchema: t.inputSchema || { type: 'object', properties: {} },
+              }))
+            });
+        } catch (err) {
+            return res.spec_error(err);
+        }
     });
 
     // REST — trigger a specific tool in a collation
     this.app.post('/rest/events/:tool_collation/:tool_name', async (req, res) => {
-      const bearerToken = extractBearerToken(req);
-      if (!bearerToken) {
-        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
-      }
 
       const { tool_collation, tool_name } = req.params;
       const inputData = req.body || {};
-
-      let tools;
-      try {
-        tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, bearerToken, tool_collation);
-      } catch (err) {
-        return res.status(err.status || 500).json({ error: err.message });
+      try{
+          let tool = await this.get_tools(req.token, tool_collation, tool_name);
+          let result = await this.run_tool(tool, inputData,req)
+          return res.spec_data(result.$last);
+      }catch (err){
+          return res.spec_error(err);
       }
 
-      const tool = tools.find(t => (t.slug || t.name) === tool_name);
-      if (!tool) {
-        return res.status(404).json({
-          content: [{ type: 'text', text: `Tool "${tool_name}" not found in collation "${tool_collation}"` }],
-          isError: true,
-        });
-      }
-
-      if (tool.inputSchema) {
-        const validate = ajv.compile(tool.inputSchema);
-        if (!validate(inputData)) {
-          const messages = (validate.errors || []).map(e => `${e.instancePath} ${e.message}`.trim()).join('; ');
-          return res.status(400).json({
-            content: [{ type: 'text', text: `Invalid input: ${messages}` }],
-            isError: true,
-          });
-        }
-      }
-
-      try {
-        let $accountability = await loadAccountability( bearerToken, this.DIRECTUS_BASE_URL );
-        const result = await this.executeFlow(tool, { $trigger: inputData, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL} }, bearerToken);
-        const lastValue = result.$last;
-        const text = typeof lastValue === 'string'
-          ? lastValue
-          : JSON.stringify(lastValue, null, 2);
-
-        return res.json({
-          content: [{ type: 'text', text }],
-        });
-      } catch (err) {
-        console.error(`Tool "${tool_name}" failed:`, err);
-        return res.status(500).json({
-          content: [{ type: 'text', text: err.message }],
-          isError: true,
-        });
-      }
     });
+
+    this.app.get('/rest/compose', async (req, res) => {
+        // list all tools available for composition.
+        return res.spec_data(this.default_tools);
+    });
+
+    this.app.post('/rest/compose/events/:tool_name', async (req, res) => {
+        const { tool_name } = req.params;
+        const inputData = req.body || {};
+        const tool = DEFAULT_TOOLS.find(t => t.slug === tool_name || t.name === tool_name);
+        if (!tool) {
+            return res.spec_error(new InvalidParamsError(`Tool "${tool_name}" not found`));
+        }
+        try {
+
+            if(tool_name === 'test_composed_tool'){
+                const { tool_collation, tool_name: composed_tool_name, arguments: toolArgs } = inputData || {};
+
+                if (!tool_collation || !composed_tool_name) {
+                    return res.spec_error(new InvalidParamsError(`tool_collation and tool_name are required in arguments`))
+                }
+                const collationTools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
+                const composedTool = collationTools.find(t => (t.slug || t.name) === composed_tool_name);
+                if (!composedTool) {
+                    return res.spec_error(new InvalidParamsError(`Tool "${composed_tool_name}" not found in collation "${tool_collation}"`));
+                }
+
+                let run_result = await this.run_tool(composedTool, toolArgs, req);
+
+                return res.spec_data(run_result.$last);
+
+            }
+
+            let result = await this.run_default_tool(tool, inputData, req);
+            return res.spec_data(result.$last);
+        } catch (err) {
+            return res.spec_error(err);
+        }
+    });
+
   }
 
   /**
    * Execute a flow using the iterative runtime
    */
-  async executeFlow(flow, context, bearerToken) {
-    return run_operations(flow.operations, flow.start_slug, context,bearerToken);
+  async executeFlow(flow, context, token) {
+    return run_operations(flow.operations, flow.start_slug, context, token);
   }
 
   async listen() {
     return new Promise((resolve) => {
       this._server = this.app.listen(this.PORT, () => {
         console.log(`🚀 MCP Server running on http://localhost:${this.PORT}`);
-        console.log(`   Landing page:  GET  /`);
-        console.log(`   Init state:    GET  /initialize`);
-        console.log(`   Health:        GET  /health`);
-        console.log(`   Initialize:    POST /initialize`);
-        console.log(`   MCP (default): POST /mcp`);
-        console.log(`   MCP:           POST /mcp/{tool_collation}`);
-        console.log(`   REST tools:    GET  /rest/{tool_collation}`);
-        console.log(`   REST trigger:  POST /rest/events/{tool_collation}/{tool_name}`);
+        console.log(`   Landing page:       GET  /`);
+        console.log(`   Init state:         GET  /initialize`);
+        console.log(`   Health:             GET  /health`);
+        console.log(`   Initialize:         POST /initialize`);
+        console.log(`   MCP (default):      POST /mcp`);
+        console.log(`   MCP:                POST /mcp/{tool_collation}`);
+        console.log(`   REST tools:         GET  /rest/{tool_collation}`);
+        console.log(`   REST trigger:       POST /rest/events/{tool_collation}/{tool_name}`);
+        console.log(`   REST build tools:   GET  /rest/compose`);
+        console.log(`   REST build.trigger: POST /rest/compose/events/{tool_name}`);
         resolve(this._server);
       });
     });
@@ -543,4 +356,55 @@ export class App {
       }
     });
   }
+
+  async get_tools(token, tool_collation,tool_name){
+      let tools;
+      tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, token, tool_collation);
+
+      const tool = tools.find(t => (t.slug || t.name) === tool_name);
+      if (!tool) {
+          throw new InvalidParamsError(`Tool "${tool_name}" not found in collation "${tool_collation}"`);
+      }
+      return tool;
+  }
+
+  async run_tool(tool, inputData,req) {
+      let {token,$accountability} = req
+
+      if (tool.inputSchema) {
+          const validate = ajv.compile(tool.inputSchema);
+          if (!validate(inputData)) {
+              const messages = (validate.errors || []).map(e => `${e.instancePath} ${e.message}`.trim()).join('; ');
+              throw new InvalidParamsError(messages);
+          }
+      }
+
+      return await this.executeFlow(tool, {
+          $trigger: inputData,
+          $accountability,
+          $env: {DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL}
+      }, token);
+  }
+
+  async run_default_tool(tool, inputData, req){
+      // we need to inject the directus data from the request to the inputData
+      // so that it can be used in the operations of the default tool, for example, in fetch_request operations.
+      // this is safe because default tools are defined in the filesystem by trusted server code, not user-supplied.
+        return await this.run_tool(tool, {
+            ...inputData,
+            DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
+            DIRECTUS_TOKEN: req.token,
+        }, req);
+  }
+
+  get default_tools(){
+      return {
+          tools: DEFAULT_TOOLS.map(t => ({
+              name: t.slug,
+              description: t.description || '',
+              inputSchema: t.inputSchema || { type: 'object', properties: {} },
+          })),
+      };
+  }
+
 }
