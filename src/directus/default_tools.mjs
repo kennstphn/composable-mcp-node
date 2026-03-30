@@ -28,7 +28,7 @@ export const LIST_OPERATION_TYPES_TOOL = {
       slug: 'return_types',
       type: 'run_script',
       config: {
-        code: 'module.exports = async function() { return ["run_script", "fetch_request"]; };',
+        code: 'module.exports = async function() { return ["run_script", "fetch_request","call_tool"]; };',
       },
       resolve: null,
       reject: null,
