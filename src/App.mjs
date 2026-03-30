@@ -475,7 +475,7 @@ export class App {
               });
             }
             const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
-            let result = await this.executeFlow(composedTool, { $trigger: toolArgs || {}, $accountability });
+            let result = await this.executeFlow(composedTool, { $trigger: toolArgs || {}, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL, DIRECTUS_TOKEN: bearerToken } });
             result.$last_slug = result.$last.slug; // expose last operation slug for better debugging of composed tools
             delete(result.$last); // avoid redundancy in the main content
 
@@ -665,7 +665,7 @@ export class App {
 
         try {
           const $accountability = await loadAccountability(bearerToken, this.DIRECTUS_BASE_URL);
-          const result = await this.executeFlow(tool, {$trigger:args,$accountability});
+          const result = await this.executeFlow(tool, { $trigger: args, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL, DIRECTUS_TOKEN: bearerToken } });
           const lastValue = result.$last;
           const text = typeof lastValue === 'string'
             ? lastValue
@@ -756,7 +756,7 @@ export class App {
 
       try {
         let $accountability = await loadAccountability( bearerToken, this.DIRECTUS_BASE_URL );
-        const result = await this.executeFlow(tool, {$trigger:inputData,$accountability});
+        const result = await this.executeFlow(tool, { $trigger: inputData, $accountability, $env: { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL, DIRECTUS_TOKEN: bearerToken } });
         const lastValue = result.$last;
         const text = typeof lastValue === 'string'
           ? lastValue

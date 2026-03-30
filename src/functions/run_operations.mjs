@@ -1,9 +1,11 @@
 import {ScriptOperation} from '../operations/ScriptOperation.mjs';
 import {FetchRequest} from '../operations/FetchRequest.mjs';
+import {CallTool} from '../operations/CallTool.mjs';
 
 const operationTypes = {
   'run_script': ScriptOperation,
   'fetch_request': FetchRequest,
+  'call_tool': CallTool,
 };
 
 /**
