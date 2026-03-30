@@ -121,7 +121,7 @@ export class App {
       const { jsonrpc, id, method, params } = req.body || {};
 
       if (method === 'initialize') {
-          return res.spec_data({
+          return res.json({
                 protocolVersion: '2024-11-05',
                 capabilities: { tools: { list: true, call: true } },
                 serverInfo: { name: 'composable-mcp', version: '0.1.0' },
