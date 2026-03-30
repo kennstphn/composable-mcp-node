@@ -6,12 +6,17 @@
   "main": "main.mjs",
   "scripts": {
     "start": "node main.mjs",
+    "start:pm2": "pm2 start main.mjs --name composable-mcp-node",
+    "stop": "pm2 stop composable-mcp-node",
+    "restart": "pm2 restart composable-mcp-node",
+    "logs": "pm2 logs composable-mcp-node",
     "test": "node --test"
   },
   "dependencies": {
     "ajv": "^8.18.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "mustache": "^4.2.0"
+    "mustache": "^4.2.0",
+    "pm2": "^6.0.14"
   }
 }
