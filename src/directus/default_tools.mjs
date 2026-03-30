@@ -52,8 +52,17 @@ export const CREATE_TOOL_TOOL = {
     },
     required: ['title', 'name', 'tool_collation', 'start_slug'],
   },
-  start_slug: 'post_tool',
+  start_slug: 'transform_input_schema',
   operations: [
+    {
+      slug: 'transform_input_schema',
+      type: 'run_script',
+      config: {
+        code: "module.exports = async function(data) { return typeof data.inputSchema === 'object' ? JSON.stringify(data.inputSchema) : null; };",
+      },
+      resolve: 'post_tool',
+      reject: null,
+    },
     {
       slug: 'post_tool',
       type: 'fetch_request',
@@ -69,7 +78,7 @@ export const CREATE_TOOL_TOOL = {
           name:           '{{$trigger.name}}',
           description:    '{{$trigger.description}}',
           tool_collation: '{{$trigger.tool_collation}}',
-          inputSchema:    '{{$trigger.inputSchema}}',
+          inputSchema:    '{{$last}}',
           start_slug:     '{{$trigger.start_slug}}',
         },
       },
