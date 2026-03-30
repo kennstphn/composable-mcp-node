@@ -373,7 +373,7 @@ export const EDIT_FETCH_REQUEST_OPERATION_TOOL = {
           '  const configFields = ["url", "method", "headers", "body"];',
           '  const config = {};',
           '  for (const f of configFields) {',
-          '    if (data[f] !== undefined) config[f] = data[f];',
+          '    if (data.$trigger[f] !== undefined) config[f] = data.$trigger[f];',
           '  }',
           '  if (Object.keys(config).length > 0) patch.config = config;',
           '  return patch;',
