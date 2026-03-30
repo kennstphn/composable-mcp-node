@@ -1,6 +1,5 @@
 export function spec_implementation(req, res, next){
-    let {id} = req.body;
-    // Attach the JsonRpc_2_0 utilities to the request object
+    let id = req.body?.id || null;
 
     res.mcp = {
         general_result:(d) =>{
