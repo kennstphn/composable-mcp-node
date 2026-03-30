@@ -30,7 +30,7 @@ async function loadAccountability(bearerToken, DIRECTUS_BASE_URL) {
 
 export function accountability(baseUrl){
 
-    return (req, res, next) => {
+    return async (req, res, next) => {
         if(! req.token){
             // No token, skip accountability
             return next();
@@ -40,8 +40,9 @@ export function accountability(baseUrl){
             req.$accountability = accountability;
             next();
         }).catch(err => {
-            return res.status(401).json({ state: 'invalid_token', error: err.message });
-        })
+            res.status(401).json({ state: 'invalid_token', error: err.message });
+            next();
+        });
 
     }
 }
