@@ -1,9 +1,11 @@
 import {ScriptOperation} from '../operations/ScriptOperation.mjs';
 import {FetchRequest} from '../operations/FetchRequest.mjs';
+import {CallTool} from '../operations/CallTool.mjs';
 
 const operationTypes = {
   'run_script': ScriptOperation,
   'fetch_request': FetchRequest,
+  'call_tool': CallTool,
 };
 
 /**
@@ -16,7 +18,7 @@ const operationTypes = {
  *                                  are reserved ($env, $last, $vars, $error).
  * @returns {object} Final context after the chain completes
  */
-export async function run_operations(operations, start_slug, initialContext = {}) {
+export async function run_operations(operations, start_slug, initialContext = {}, bearerToken = null) {
   // 1. Build operation index by slug
   const opMap = {};
   for (const op of operations) {
@@ -77,7 +79,7 @@ export async function run_operations(operations, start_slug, initialContext = {}
       let result = null;
       let is_error = false;
       try{
-        result = await instance.run(context);
+        result = await instance.run(context, bearerToken);
       }catch(err){
           is_error = true;
         result = err;
