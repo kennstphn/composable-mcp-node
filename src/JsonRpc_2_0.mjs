@@ -1,104 +1,25 @@
-export class JsonRpcError extends Error{
+class JsonRpcError extends Error{
     code=-32000;
     data=null;
-    constructor(message,code,data) {
+    constructor(message) {
         super(message);
-        this.data = data;
-        this.code = code;
-
     }
 
 }
-export class ParseError extends JsonRpcError{
-    constructor(data) {
-        super(-32700, 'Parse error', data);
-    }
-}
+export class ParseError extends JsonRpcError{code=-32700;}
 
-export class InvalidRequestError extends JsonRpcError{
-    constructor(data) {
-        super(-32600, 'Invalid Request', data);
-    }
-}
+export class InvalidRequestError extends JsonRpcError{code=-32600;}
 
-export class MethodNotFoundError extends JsonRpcError{
-    constructor(data) {
-        super(-32601, 'Method not found', data);
-    }
-}
+export class MethodNotFoundError extends JsonRpcError{code = -32601;}
 
-export class InvalidParamsError extends JsonRpcError{
-    constructor(data) {
-        super(-32602, 'Invalid params', data);
-    }
-}
+export class InvalidParamsError extends JsonRpcError{code = -32602;}
 
-export class InternalError extends JsonRpcError{
-    constructor(data) {
-        super(-32603, 'Internal error', data);
-    }
-}
+export class InternalError extends JsonRpcError{code = -32603;}
 
 export class ServerError extends JsonRpcError{
+    code = -32000;
     constructor(data,code) {
-        super(code, 'Server error', data);
+        super(data instanceof Error ? data.message : String(data));
+        this.code = code || this.code;
     }
-
-}
-
-export function respond_with_error(res, id, error){
-    if(! error instanceof JsonRpcError){
-        error = new ServerError(error instanceof Error ? error.message : String(error));
-    }
-    return res.json({
-        jsonrpc: '2.0',
-        id,
-        error: {
-            code: error.code,
-            message: error.message
-        }
-    });
-}
-
-export function respond_with_data(res, id, data, isError){
-    let output = {
-        jsonrpc: '2.0',
-        id,
-        result: {
-            content:[{type:"text",text: JSON.stringify(data)}]
-        }
-    };
-    if(isError){
-        output.result.isError = true;
-    }
-    return res.json(output);
-}
-
-export class Response{
-    constructor(res, id){
-        this.res = res;
-        this.id = id;
-    }
-
-    error(error){
-        return respond_with_error(this.res, this.id, error);
-    }
-
-    data(data, isError){
-        return respond_with_data(this.res, this.id, data, isError);
-    }
-
-    without_data(code){
-        return this.res.status( code).end();
-    }
-}
-
-export const JsonRpc_2_0 = {
-    ParseError,
-    InvalidRequestError,
-    MethodNotFoundError,
-    InvalidParamsError,
-    InternalError,
-    ServerError,
-    Response
 }

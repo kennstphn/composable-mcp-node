@@ -129,16 +129,16 @@ export class App {
       }
 
       if (method === 'notifications/initialized') {
-        return res.spec_without_data(204);
+        return res.mcp.empty_response(204);
       }
 
       if (method === 'ping') {
-          return res.spec_data({});
+          return res.mcp.general_result({});
       }
 
 
       if (method === 'tools/list') {
-          return res.spec_data(this.default_tools);
+          return res.mcp.general_result({tools:this.default_tools});
       }
 
       if (method === 'tools/call') {
@@ -146,27 +146,27 @@ export class App {
         const tool = DEFAULT_TOOLS.find(t => t.slug === name || t.name === name);
 
         if (!tool) {
-            return res.spec_error(new InvalidParamsError(`Tool "${name}" not found`));
+            return res.mcp.general_error(new InvalidParamsError(`Tool "${name}" not found`));
         }
 
         // ── test_composed_tool: fetch tool from Directus and execute it ─────────
         if (tool.slug === 'test_composed_tool') {
           const { tool_collation, tool_name, arguments: toolArgs } = args || {};
           if (!tool_collation || !tool_name) {
-              return res.spec_error(new InvalidParamsError(`tool_collation and tool_name are required in arguments`))
+              return res.mcp.general_error(new InvalidParamsError(`tool_collation and tool_name are required in arguments`))
           }
           try {
             const collationTools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
             const composedTool = collationTools.find(t => t.slug === tool_name || t.name === tool_name);
             if (!composedTool) {
-                return res.spec_error(new InvalidParamsError(`Tool "${tool_name}" not found in collation "${tool_collation}"`))
+                return res.mcp.general_error(new InvalidParamsError(`Tool "${tool_name}" not found in collation "${tool_collation}"`))
             }
             let run_result = await this.run_tool(composedTool, toolArgs, req);
 
-            return res.spec_data(run_result.$last,run_result.$vars.isError);
+            return res.mcp.tool_call_result(run_result.$last,run_result.$vars.isError);
 
           } catch (err) {
-              return res.spec_error(err);
+              return res.mcp.general_error(err);
           }
         }
 
@@ -175,19 +175,19 @@ export class App {
           const validate = ajv.compile(tool.inputSchema);
           if (!validate(args || {})) {
             const messages = (validate.errors || []).map(e => `${e.instancePath} ${e.message}`.trim()).join('; ');
-            return res.spec_error( new InvalidParamsError(messages) );
+            return res.mcp.general_error( new InvalidParamsError(messages) );
           }
         }
 
         try {
           const result = await this.run_default_tool(tool, args || {}, req);
-          return res.spec_data(result,result.$vars.isError);
+          return res.mcp.tool_call_result(result,result.$vars.isError);
         } catch (err) {
-            return res.spec_error(err);
+            return res.mcp.general_error(err);
         }
       }
 
-      return res.spec_error(new MethodNotFoundError(`Method not found: ${method}`));
+      return res.mcp.general_error(new MethodNotFoundError(`Method not found: ${method}`));
     });
 
     // MCP endpoint — per-request Directus fetch using the caller's Bearer token
@@ -195,7 +195,7 @@ export class App {
       const { jsonrpc, id, method, params } = req.body || {};
 
       if (method === 'initialize') {
-          return res.spec_data({
+          return res.mcp.general_result({
               protocolVersion: '2024-11-05',
               capabilities: {
                   tools: {
@@ -211,11 +211,11 @@ export class App {
       }
 
       if (method === 'notifications/initialized') {
-          return res.spec_without_data(204);
+          return res.mcp.empty_response(204);
       }
 
       if (method === 'ping') {
-          return res.spec_data({});
+          return res.mcp.general_result({});
       }
 
       const { tool_collation } = req.params;
@@ -223,11 +223,11 @@ export class App {
       try {
         tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
       } catch (err) {
-          return res.spec_error(err);
+          return res.mcp.general_error(err);
       }
 
       if (method === 'tools/list') {
-          return res.spec_data({
+          return res.mcp.general_result({
               tools: tools.map(t => ({
                   name: t.slug || t.name,
                   description: t.description || '',
@@ -242,13 +242,13 @@ export class App {
 
         try{
             let result = await this.run_tool(tool, args, req);
-            return res.spec_data(result.$last,result.$vars.isError);
+            return res.mcp.tool_call_result(result.$last,result.$vars.isError);
         }catch (err){
-            return res.spec_error(err);
+            return res.mcp.general_error(err);
         }
       }
 
-      return res.spec_error(new MethodNotFoundError(`Method not found: ${method}`));
+      return res.mcp.general_error(new MethodNotFoundError(`Method not found: ${method}`));
     });
 
     // REST — list tools for a collation
@@ -256,7 +256,7 @@ export class App {
         const { tool_collation } = req.params;
         try {
             const tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
-            return res.spec_data({
+            return res.mcp.general_result({
               tools: tools.map(t => ({
                 name: t.slug || t.name,
                 description: t.description || '',
@@ -264,7 +264,7 @@ export class App {
               }))
             });
         } catch (err) {
-            return res.spec_error(err);
+            return res.mcp.general_error(err);
         }
     });
 
@@ -276,16 +276,16 @@ export class App {
       try{
           let tool = await this.get_tools(req.token, tool_collation, tool_name);
           let result = await this.run_tool(tool, inputData,req)
-          return res.spec_data(result.$last,result.$vars.isError);
+          return res.mcp.tool_call_result(result.$last,result.$vars.isError);
       }catch (err){
-          return res.spec_error(err);
+          return res.mcp.general_error(err);
       }
 
     });
 
     this.app.get('/rest/compose', async (req, res) => {
         // list all tools available for composition.
-        return res.spec_data(this.default_tools);
+        return res.mcp.tool_call_result(this.default_tools);
     });
 
     this.app.post('/rest/compose/events/:tool_name', async (req, res) => {
@@ -293,7 +293,7 @@ export class App {
         const inputData = req.body || {};
         const tool = DEFAULT_TOOLS.find(t => t.slug === tool_name || t.name === tool_name);
         if (!tool) {
-            return res.spec_error(new InvalidParamsError(`Tool "${tool_name}" not found`));
+            return res.mcp.general_error(new InvalidParamsError(`Tool "${tool_name}" not found`));
         }
         try {
 
@@ -301,24 +301,24 @@ export class App {
                 const { tool_collation, tool_name: composed_tool_name, arguments: toolArgs } = inputData || {};
 
                 if (!tool_collation || !composed_tool_name) {
-                    return res.spec_error(new InvalidParamsError(`tool_collation and tool_name are required in arguments`))
+                    return res.mcp.general_error(new InvalidParamsError(`tool_collation and tool_name are required in arguments`))
                 }
                 const collationTools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation);
                 const composedTool = collationTools.find(t => (t.slug || t.name) === composed_tool_name);
                 if (!composedTool) {
-                    return res.spec_error(new InvalidParamsError(`Tool "${composed_tool_name}" not found in collation "${tool_collation}"`));
+                    return res.mcp.general_error(new InvalidParamsError(`Tool "${composed_tool_name}" not found in collation "${tool_collation}"`));
                 }
 
                 let run_result = await this.run_tool(composedTool, toolArgs, req);
 
-                return res.spec_data(run_result.$last,run_result.$vars.isError);
+                return res.mcp.tool_call_result(run_result.$last,run_result.$vars.isError);
 
             }
 
             let result = await this.run_default_tool(tool, inputData, req);
-            return res.spec_data(result.$last,result.$vars.isError);
+            return res.mcp.tool_call_result(result.$last,result.$vars.isError);
         } catch (err) {
-            return res.spec_error(err);
+            return res.mcp.general_error(err);
         }
     });
 
