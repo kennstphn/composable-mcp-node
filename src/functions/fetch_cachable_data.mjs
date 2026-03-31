@@ -12,3 +12,7 @@ export async function fetch_cacheable_data({key,duration_ms},fetch_function) {
     cache.set(key, { timestamp: Date.now(), data });
     return data;
 }
+/** Clear all cached entries. Intended for use in tests only. */
+export function clearFetchCache() {
+    cache.clear();
+}

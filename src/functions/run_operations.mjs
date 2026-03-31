@@ -11,11 +11,12 @@ const operationTypes = {
 /**
  * Run a chain of operations starting from start_slug.
  *
- * @param {Array}  operations    - Array of operation objects (slug, type, config, resolve, reject)
- * @param {string} start_slug    - Slug of the first operation to run
+ * @param {Array}  operations     - Array of operation objects (slug, type, config, resolve, reject)
+ * @param {string} start_slug     - Slug of the first operation to run
  * @param {object} initialContext - Seed context: should include $env (frozen), plus any initial
  *                                  input fields the operations may need. Keys that start with $
- *                                  are reserved ($env, $last, $vars, $error).
+ *                                  are reserved ($env, $last, $vars, $error, $trigger).
+ * @param {string} [bearerToken]  - Bearer token forwarded to operations that call Directus (e.g. CallTool)
  * @returns {object} Final context after the chain completes
  */
 export async function run_operations(operations, start_slug, initialContext = {}, bearerToken = null) {

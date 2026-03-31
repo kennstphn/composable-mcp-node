@@ -1,6 +1,7 @@
-import { describe, it, mock } from 'node:test';
+import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { CallTool } from './CallTool.mjs';
+import { clearFetchCache } from '../functions/fetch_cachable_data.mjs';
 
 // Helper to build a mock fetch response
 function makeResponse(status, body, contentType = 'application/json') {
@@ -21,7 +22,7 @@ function makeToolsResponse(tool) {
 // A minimal tool object with a single run_script operation
 function simpleTool(result) {
   return {
-    slug: 'target-tool',
+    name: 'target-tool',
     operations: [
       {
         slug: 'step-1',
@@ -45,6 +46,9 @@ const BASE_ENV = {
 };
 
 describe('CallTool', () => {
+  // Clear the fetch cache before each test to prevent cache interference
+  beforeEach(() => clearFetchCache());
+
   it('throws when tool_collation is missing from config', async () => {
     const op = new CallTool({ tool_slug: 'foo' });
     await assert.rejects(() => op.run(BASE_ENV), /tool_collation.*required/i);
@@ -59,14 +63,14 @@ describe('CallTool', () => {
     const op = new CallTool({ tool_collation: 'col', tool_slug: 'tool' });
     await assert.rejects(
       () => op.run({ $env: { DIRECTUS_BASE_URL: 'https://example.com' } }),
-      /DIRECTUS_TOKEN/
+      /bearer token/i
     );
   });
 
   it('throws when DIRECTUS_BASE_URL is absent from context.$env', async () => {
     const op = new CallTool({ tool_collation: 'col', tool_slug: 'tool' });
     await assert.rejects(
-      () => op.run({ $env: { DIRECTUS_TOKEN: 'tok' } }),
+      () => op.run({ $env: {} }, 'some-token'),
       /DIRECTUS_BASE_URL/
     );
   });
@@ -107,7 +111,7 @@ describe('CallTool', () => {
     globalThis.fetch = fetchMock;
 
     try {
-      await assert.rejects(() => op.run(BASE_ENV), /HTTP 500/);
+      await assert.rejects(() => op.run(BASE_ENV), /Directus returned 500/i);
     } finally {
       globalThis.fetch = origFetch;
     }
@@ -163,6 +167,7 @@ describe('CallTool', () => {
 
   it('interpolates context values into the input before passing to the sub-tool', async () => {
     const tool = {
+      name: 'echo-tool',
       slug: 'echo-tool',
       operations: [
         {
@@ -200,6 +205,7 @@ describe('CallTool', () => {
     // The sub-tool's script exposes $accountability via $trigger so we can assert on it
     const accountabilityCapture = { value: null };
     const tool = {
+      name: 'auth-tool',
       slug: 'auth-tool',
       operations: [
         {
@@ -236,6 +242,7 @@ describe('CallTool', () => {
 
   it('passes $env from the calling context to the sub-tool flow (enabling nested CallTool)', async () => {
     const tool = {
+      name: 'env-tool',
       slug: 'env-tool',
       operations: [
         {
@@ -288,6 +295,7 @@ describe('CallTool', () => {
 
   it('propagates errors thrown by the sub-tool flow', async () => {
     const tool = {
+      name: 'failing-tool',
       slug: 'failing-tool',
       operations: [
         {

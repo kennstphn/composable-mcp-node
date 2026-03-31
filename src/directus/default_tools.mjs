@@ -14,15 +14,10 @@ module.exports = async function(data) {
 /**
  * Default tool definitions — served directly from the filesystem at POST /mcp.
  *
- * These seven tools let an authenticated user manage tool definitions inside
+ * These eleven tools let an authenticated user manage tool definitions inside
  * Directus through the MCP interface.  They are NOT stored in Directus; the
  * server loads them from this module and executes them locally.
  *
- * When a default tool is executed, the server injects two keys into the $trigger context
- * that fetch_request operations can use via template interpolation:
- *
- *   • `$trigger.DIRECTUS_BASE_URL` — the server's configured Directus instance URL
- *   • `$trigger.DIRECTUS_TOKEN`    — the caller's bearer token (from the Authorization header)
  *
  */
 
@@ -80,10 +75,9 @@ export const CREATE_TOOL_TOOL = {
       slug: 'post_tool',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools',
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools',
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: {
@@ -124,10 +118,9 @@ export const ADD_RUN_SCRIPT_OPERATION_TOOL = {
       slug: 'post_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations',
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: {
@@ -200,10 +193,9 @@ export const ADD_FETCH_REQUEST_OPERATION_TOOL = {
       slug: 'post_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations',
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: '{{$last}}',
@@ -264,10 +256,9 @@ module.exports = async function(data) {
       slug: 'patch_tool',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools/{{$trigger.tool_id}}',
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools/{{$trigger.tool_id}}',
         method: 'PATCH',
         headers: {
-          'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: '{{$last}}',
@@ -321,10 +312,9 @@ export const EDIT_RUN_SCRIPT_OPERATION_TOOL = {
       slug: 'patch_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
         method: 'PATCH',
         headers: {
-          'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: '{{$last}}',
@@ -388,10 +378,9 @@ export const EDIT_FETCH_REQUEST_OPERATION_TOOL = {
       slug: 'patch_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
         method: 'PATCH',
         headers: {
-          'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
         body: '{{$last}}',
@@ -415,10 +404,9 @@ export const LIST_COLLATIONS_TOOL = {
       slug: 'fetch_collations',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools?groupBy[]=tool_collation&fields=tool_collation',
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools?groupBy[]=tool_collation&fields=tool_collation',
         method: 'GET',
         headers: {
-          'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
       },
@@ -463,10 +451,9 @@ export const LIST_COMPOSED_TOOLS_TOOL = {
       slug: 'fetch_tools',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{$trigger.tool_collation}}&fields=id,title,name,description,tool_collation,inputSchema',
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{$trigger.tool_collation}}&fields=id,title,name,description,tool_collation,inputSchema',
         method: 'GET',
         headers: {
-          'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
           'Content-Type': 'application/json',
         },
       },
@@ -544,11 +531,9 @@ export const DELETE_COMPOSED_TOOL_TOOL = {
       slug: 'delete_tool',
       type: 'fetch_request',
       config: {
-        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools/{{$trigger.tool_id}}',
+        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools/{{$trigger.tool_id}}',
         method: 'DELETE',
-        headers: {
-          'Authorization': 'Bearer {{$trigger.DIRECTUS_TOKEN}}',
-        },
+        headers: {},
       },
       resolve: null,
       reject: null,

@@ -267,6 +267,9 @@ export async function ensureRelation(baseUrl, token, relation) {
  * @returns {Promise<'needed'|'in_progress'|'migration_needed'|'complete'>}
  */
 export async function checkInitializationState(baseUrl, token) {
+  // No token — skip Directus entirely and report the server as uninitialised.
+  if (!token) return { state: 'needed' };
+
   // 1. Check whether the two core collections exist.
   //    GET /collections/{name} returns 403 when the collection doesn't exist yet
   //    (a Directus quirk), even for fully-authorised tokens.  Fetching the full

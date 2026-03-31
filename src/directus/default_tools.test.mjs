@@ -21,14 +21,14 @@ import { ScriptOperation } from '../operations/ScriptOperation.mjs';
  * The result is JSON-roundtripped to avoid cross-VM-realm object comparison
  * failures in assert.deepStrictEqual.
  *
- * Note: at runtime the `/mcp` route also injects `DIRECTUS_BASE_URL` and
- * `DIRECTUS_TOKEN` as top-level context keys.  The scripts tested here
- * (build_body, build_patch) only read user-provided input fields and do not
- * touch those keys, so they are intentionally omitted from this helper.
+ * Pass context keys exactly as they would be present at runtime:
+ *   • Caller-supplied arguments arrive via `$trigger` (e.g. `{ $trigger: { tool_id: 5 } }`)
+ *   • Prior operation outputs are top-level keys named after their slug
+ *     (e.g. `{ fetch_collations: { data: [...] } }`)
  */
-async function runEmbeddedScript(operation, inputData) {
+async function runEmbeddedScript(operation, context) {
   const scriptOp = new ScriptOperation(operation.config);
-  const result = await scriptOp.run({ ...inputData, $last: null, $env: {}, $vars: {} });
+  const result = await scriptOp.run({ $last: null, $env: {}, $vars: {}, ...context });
   return JSON.parse(JSON.stringify(result));
 }
 
@@ -39,49 +39,48 @@ describe('DEFAULT_TOOLS', () => {
     assert.equal(DEFAULT_TOOLS.length, 11);
   });
 
-  it('includes all four operation-editing tools and the four new composed-tool management tools', () => {
-    const slugs = DEFAULT_TOOLS.map(t => t.slug);
-    assert.ok(slugs.includes('add_run_script_operation'));
-    assert.ok(slugs.includes('add_fetch_request_operation'));
-    assert.ok(slugs.includes('edit_run_script_operation'));
-    assert.ok(slugs.includes('edit_fetch_request_operation'));
-    assert.ok(slugs.includes('list_collations'));
-    assert.ok(slugs.includes('list_composed_tools'));
-    assert.ok(slugs.includes('test_composed_tool'));
-    assert.ok(slugs.includes('delete_composed_tool'));
-    assert.ok(!slugs.includes('add_operation'), 'old add_operation should be removed');
-    assert.ok(!slugs.includes('edit_operation'), 'old edit_operation should be removed');
+  it('includes all operation-editing tools and composed-tool management tools', () => {
+    const names = DEFAULT_TOOLS.map(t => t.name);
+    assert.ok(names.includes('add_run_script_operation'));
+    assert.ok(names.includes('add_fetch_request_operation'));
+    assert.ok(names.includes('edit_run_script_operation'));
+    assert.ok(names.includes('edit_fetch_request_operation'));
+    assert.ok(names.includes('list_collations'));
+    assert.ok(names.includes('list_composed_tools'));
+    assert.ok(names.includes('test_composed_tool'));
+    assert.ok(names.includes('delete_composed_tool'));
+    assert.ok(!names.includes('add_operation'), 'old add_operation should be removed');
+    assert.ok(!names.includes('edit_operation'), 'old edit_operation should be removed');
   });
 
   it('every tool has the required shape fields', () => {
     for (const tool of DEFAULT_TOOLS) {
-      assert.ok(tool.slug,          `${tool.slug}: missing slug`);
-      assert.ok(tool.name,          `${tool.slug}: missing name`);
-      assert.ok(tool.start_slug,    `${tool.slug}: missing start_slug`);
-      assert.ok(Array.isArray(tool.operations), `${tool.slug}: operations must be an array`);
-      assert.ok(tool.operations.length > 0,     `${tool.slug}: operations must not be empty`);
+      assert.ok(tool.name,          `${tool.name}: missing name`);
+      assert.ok(tool.start_slug,    `${tool.name}: missing start_slug`);
+      assert.ok(Array.isArray(tool.operations), `${tool.name}: operations must be an array`);
+      assert.ok(tool.operations.length > 0,     `${tool.name}: operations must not be empty`);
     }
   });
 
   it('no tool has a tool_collation field (they are filesystem-side, not stored in Directus)', () => {
     for (const tool of DEFAULT_TOOLS) {
-      assert.ok(!('tool_collation' in tool), `${tool.slug}: should not have tool_collation`);
+      assert.ok(!('tool_collation' in tool), `${tool.name}: should not have tool_collation`);
     }
   });
 
-  it('fetch_request operations use {{DIRECTUS_BASE_URL}} and {{DIRECTUS_TOKEN}}, not $env', () => {
+  it('fetch_request operations use {{$trigger.DIRECTUS_BASE_URL}} and {{$trigger.DIRECTUS_TOKEN}}, not $env', () => {
     for (const tool of DEFAULT_TOOLS) {
       for (const op of tool.operations) {
         if (op.type !== 'fetch_request') continue;
         const url = op.config?.url || '';
         const auth = op.config?.headers?.Authorization || '';
-        assert.ok(!url.includes('$env'),  `${tool.slug}/${op.slug}: url must not reference $env`);
-        assert.ok(!auth.includes('$env'), `${tool.slug}/${op.slug}: Authorization must not reference $env`);
+        assert.ok(!url.includes('$env'),  `${tool.name}/${op.slug}: url must not reference $env`);
+        assert.ok(!auth.includes('$env'), `${tool.name}/${op.slug}: Authorization must not reference $env`);
         if (url.includes('DIRECTUS')) {
-          assert.ok(url.includes('{{DIRECTUS_BASE_URL}}'), `${tool.slug}/${op.slug}: url should use {{DIRECTUS_BASE_URL}}`);
+          assert.ok(url.includes('{{$trigger.DIRECTUS_BASE_URL}}'), `${tool.name}/${op.slug}: url should use {{$trigger.DIRECTUS_BASE_URL}}`);
         }
         if (auth.includes('DIRECTUS')) {
-          assert.ok(auth.includes('{{DIRECTUS_TOKEN}}'), `${tool.slug}/${op.slug}: Authorization should use {{DIRECTUS_TOKEN}}`);
+          assert.ok(auth.includes('{{$trigger.DIRECTUS_TOKEN}}'), `${tool.name}/${op.slug}: Authorization should use {{$trigger.DIRECTUS_TOKEN}}`);
         }
       }
     }
@@ -91,8 +90,8 @@ describe('DEFAULT_TOOLS', () => {
 // ─── add_run_script_operation ─────────────────────────────────────────────────
 
 describe('ADD_RUN_SCRIPT_OPERATION_TOOL', () => {
-  it('has slug add_run_script_operation', () => {
-    assert.equal(ADD_RUN_SCRIPT_OPERATION_TOOL.slug, 'add_run_script_operation');
+  it('has name add_run_script_operation', () => {
+    assert.equal(ADD_RUN_SCRIPT_OPERATION_TOOL.name, 'add_run_script_operation');
   });
 
   it('requires tool_id, slug, and code', () => {
@@ -118,15 +117,15 @@ describe('ADD_RUN_SCRIPT_OPERATION_TOOL', () => {
 
   it('passes code as config.code in the Directus POST body', () => {
     const body = ADD_RUN_SCRIPT_OPERATION_TOOL.operations[0].config.body;
-    assert.deepEqual(body.config, { code: '{{code}}' });
+    assert.deepEqual(body.config, { code: '{{$trigger.code}}' });
   });
 });
 
 // ─── add_fetch_request_operation ──────────────────────────────────────────────
 
 describe('ADD_FETCH_REQUEST_OPERATION_TOOL', () => {
-  it('has slug add_fetch_request_operation', () => {
-    assert.equal(ADD_FETCH_REQUEST_OPERATION_TOOL.slug, 'add_fetch_request_operation');
+  it('has name add_fetch_request_operation', () => {
+    assert.equal(ADD_FETCH_REQUEST_OPERATION_TOOL.name, 'add_fetch_request_operation');
   });
 
   it('requires tool_id, slug, and url', () => {
@@ -157,9 +156,11 @@ describe('ADD_FETCH_REQUEST_OPERATION_TOOL', () => {
   it('build_body script produces correct Directus document with only url', async () => {
     const buildBodyOp = ADD_FETCH_REQUEST_OPERATION_TOOL.operations[0];
     const result = await runEmbeddedScript(buildBodyOp, {
-      tool_id: 42,
-      slug: 'my_step',
-      url: 'https://api.example.com/data',
+      $trigger: {
+        tool_id: 42,
+        slug: 'my_step',
+        url: 'https://api.example.com/data',
+      },
     });
     assert.deepEqual(result, {
       tool:    42,
@@ -174,14 +175,16 @@ describe('ADD_FETCH_REQUEST_OPERATION_TOOL', () => {
   it('build_body script includes optional config fields when provided', async () => {
     const buildBodyOp = ADD_FETCH_REQUEST_OPERATION_TOOL.operations[0];
     const result = await runEmbeddedScript(buildBodyOp, {
-      tool_id:  7,
-      slug:     'fetch_step',
-      url:      'https://api.example.com/items',
-      method:   'POST',
-      headers:  { 'Authorization': 'Bearer token' },
-      body:     { key: 'value' },
-      resolve:  'next_step',
-      reject:   'error_step',
+      $trigger: {
+        tool_id:  7,
+        slug:     'fetch_step',
+        url:      'https://api.example.com/items',
+        method:   'POST',
+        headers:  { 'Authorization': 'Bearer token' },
+        body:     { key: 'value' },
+        resolve:  'next_step',
+        reject:   'error_step',
+      },
     });
     assert.deepEqual(result, {
       tool:    7,
@@ -201,9 +204,11 @@ describe('ADD_FETCH_REQUEST_OPERATION_TOOL', () => {
   it('build_body script omits method/headers/body when not provided', async () => {
     const buildBodyOp = ADD_FETCH_REQUEST_OPERATION_TOOL.operations[0];
     const result = await runEmbeddedScript(buildBodyOp, {
-      tool_id: 1,
-      slug:    'get_step',
-      url:     'https://example.com',
+      $trigger: {
+        tool_id: 1,
+        slug:    'get_step',
+        url:     'https://example.com',
+      },
     });
     assert.ok(!('method'  in result.config), 'method should not be set');
     assert.ok(!('headers' in result.config), 'headers should not be set');
@@ -214,8 +219,8 @@ describe('ADD_FETCH_REQUEST_OPERATION_TOOL', () => {
 // ─── edit_run_script_operation ────────────────────────────────────────────────
 
 describe('EDIT_RUN_SCRIPT_OPERATION_TOOL', () => {
-  it('has slug edit_run_script_operation', () => {
-    assert.equal(EDIT_RUN_SCRIPT_OPERATION_TOOL.slug, 'edit_run_script_operation');
+  it('has name edit_run_script_operation', () => {
+    assert.equal(EDIT_RUN_SCRIPT_OPERATION_TOOL.name, 'edit_run_script_operation');
   });
 
   it('requires only operation_id', () => {
@@ -239,15 +244,17 @@ describe('EDIT_RUN_SCRIPT_OPERATION_TOOL', () => {
 
   it('build_patch script returns empty patch when only operation_id is supplied', async () => {
     const buildPatchOp = EDIT_RUN_SCRIPT_OPERATION_TOOL.operations[0];
-    const result = await runEmbeddedScript(buildPatchOp, { operation_id: 5 });
+    const result = await runEmbeddedScript(buildPatchOp, { $trigger: { operation_id: 5 } });
     assert.deepEqual(result, {});
   });
 
   it('build_patch script wraps code in config object', async () => {
     const buildPatchOp = EDIT_RUN_SCRIPT_OPERATION_TOOL.operations[0];
     const result = await runEmbeddedScript(buildPatchOp, {
-      operation_id: 5,
-      code: 'module.exports = async function(data) { return 42; };',
+      $trigger: {
+        operation_id: 5,
+        code: 'module.exports = async function(data) { return 42; };',
+      },
     });
     assert.deepEqual(result, {
       config: { code: 'module.exports = async function(data) { return 42; };' },
@@ -257,11 +264,13 @@ describe('EDIT_RUN_SCRIPT_OPERATION_TOOL', () => {
   it('build_patch script includes slug, resolve, reject when provided', async () => {
     const buildPatchOp = EDIT_RUN_SCRIPT_OPERATION_TOOL.operations[0];
     const result = await runEmbeddedScript(buildPatchOp, {
-      operation_id: 5,
-      slug:    'new_slug',
-      code:    'module.exports = async function() { return 1; };',
-      resolve: 'next',
-      reject:  'err',
+      $trigger: {
+        operation_id: 5,
+        slug:    'new_slug',
+        code:    'module.exports = async function() { return 1; };',
+        resolve: 'next',
+        reject:  'err',
+      },
     });
     assert.deepEqual(result, {
       slug:    'new_slug',
@@ -275,8 +284,8 @@ describe('EDIT_RUN_SCRIPT_OPERATION_TOOL', () => {
 // ─── edit_fetch_request_operation ─────────────────────────────────────────────
 
 describe('EDIT_FETCH_REQUEST_OPERATION_TOOL', () => {
-  it('has slug edit_fetch_request_operation', () => {
-    assert.equal(EDIT_FETCH_REQUEST_OPERATION_TOOL.slug, 'edit_fetch_request_operation');
+  it('has name edit_fetch_request_operation', () => {
+    assert.equal(EDIT_FETCH_REQUEST_OPERATION_TOOL.name, 'edit_fetch_request_operation');
   });
 
   it('requires only operation_id', () => {
@@ -303,16 +312,18 @@ describe('EDIT_FETCH_REQUEST_OPERATION_TOOL', () => {
 
   it('build_patch script returns empty patch when only operation_id is supplied', async () => {
     const buildPatchOp = EDIT_FETCH_REQUEST_OPERATION_TOOL.operations[0];
-    const result = await runEmbeddedScript(buildPatchOp, { operation_id: 9 });
+    const result = await runEmbeddedScript(buildPatchOp, { $trigger: { operation_id: 9 } });
     assert.deepEqual(result, {});
   });
 
   it('build_patch script groups url/method/headers/body under config', async () => {
     const buildPatchOp = EDIT_FETCH_REQUEST_OPERATION_TOOL.operations[0];
     const result = await runEmbeddedScript(buildPatchOp, {
-      operation_id: 9,
-      url:    'https://new.example.com',
-      method: 'DELETE',
+      $trigger: {
+        operation_id: 9,
+        url:    'https://new.example.com',
+        method: 'DELETE',
+      },
     });
     assert.deepEqual(result, {
       config: { url: 'https://new.example.com', method: 'DELETE' },
@@ -322,13 +333,15 @@ describe('EDIT_FETCH_REQUEST_OPERATION_TOOL', () => {
   it('build_patch script includes slug, resolve, reject alongside config', async () => {
     const buildPatchOp = EDIT_FETCH_REQUEST_OPERATION_TOOL.operations[0];
     const result = await runEmbeddedScript(buildPatchOp, {
-      operation_id: 9,
-      slug:    'updated_step',
-      url:     'https://api.example.com/v2',
-      headers: { 'X-Custom': 'val' },
-      body:    { data: 1 },
-      resolve: 'on_success',
-      reject:  'on_fail',
+      $trigger: {
+        operation_id: 9,
+        slug:    'updated_step',
+        url:     'https://api.example.com/v2',
+        headers: { 'X-Custom': 'val' },
+        body:    { data: 1 },
+        resolve: 'on_success',
+        reject:  'on_fail',
+      },
     });
     assert.deepEqual(result, {
       slug:    'updated_step',
@@ -345,9 +358,11 @@ describe('EDIT_FETCH_REQUEST_OPERATION_TOOL', () => {
   it('build_patch script does not set config when no config fields are provided', async () => {
     const buildPatchOp = EDIT_FETCH_REQUEST_OPERATION_TOOL.operations[0];
     const result = await runEmbeddedScript(buildPatchOp, {
-      operation_id: 9,
-      slug:    'rename_only',
-      resolve: 'next',
+      $trigger: {
+        operation_id: 9,
+        slug:    'rename_only',
+        resolve: 'next',
+      },
     });
     assert.deepEqual(result, { slug: 'rename_only', resolve: 'next' });
     assert.ok(!('config' in result), 'config should not be set when no config fields supplied');
@@ -357,8 +372,8 @@ describe('EDIT_FETCH_REQUEST_OPERATION_TOOL', () => {
 // ─── list_collations ──────────────────────────────────────────────────────────
 
 describe('LIST_COLLATIONS_TOOL', () => {
-  it('has slug list_collations', () => {
-    assert.equal(LIST_COLLATIONS_TOOL.slug, 'list_collations');
+  it('has name list_collations', () => {
+    assert.equal(LIST_COLLATIONS_TOOL.name, 'list_collations');
   });
 
   it('has no required inputs', () => {
@@ -407,8 +422,8 @@ describe('LIST_COLLATIONS_TOOL', () => {
 // ─── list_composed_tools ──────────────────────────────────────────────────────
 
 describe('LIST_COMPOSED_TOOLS_TOOL', () => {
-  it('has slug list_composed_tools', () => {
-    assert.equal(LIST_COMPOSED_TOOLS_TOOL.slug, 'list_composed_tools');
+  it('has name list_composed_tools', () => {
+    assert.equal(LIST_COMPOSED_TOOLS_TOOL.name, 'list_composed_tools');
   });
 
   it('requires tool_collation', () => {
@@ -422,7 +437,7 @@ describe('LIST_COMPOSED_TOOLS_TOOL', () => {
 
   it('fetch_request URL filters by tool_collation', () => {
     const url = LIST_COMPOSED_TOOLS_TOOL.operations[0].config.url;
-    assert.ok(url.includes('{{tool_collation}}'), 'URL should interpolate tool_collation');
+    assert.ok(url.includes('{{$trigger.tool_collation}}'), 'URL should interpolate $trigger.tool_collation');
     assert.ok(url.includes('filter'), 'URL should contain a filter');
   });
 });
@@ -430,8 +445,8 @@ describe('LIST_COMPOSED_TOOLS_TOOL', () => {
 // ─── test_composed_tool ────────────────────────────────────────────────────────
 
 describe('TEST_COMPOSED_TOOL_TOOL', () => {
-  it('has slug test_composed_tool', () => {
-    assert.equal(TEST_COMPOSED_TOOL_TOOL.slug, 'test_composed_tool');
+  it('has name test_composed_tool', () => {
+    assert.equal(TEST_COMPOSED_TOOL_TOOL.name, 'test_composed_tool');
   });
 
   it('requires tool_collation and tool_name', () => {
@@ -450,8 +465,8 @@ describe('TEST_COMPOSED_TOOL_TOOL', () => {
 // ─── delete_composed_tool ─────────────────────────────────────────────────────
 
 describe('DELETE_COMPOSED_TOOL_TOOL', () => {
-  it('has slug delete_composed_tool', () => {
-    assert.equal(DELETE_COMPOSED_TOOL_TOOL.slug, 'delete_composed_tool');
+  it('has name delete_composed_tool', () => {
+    assert.equal(DELETE_COMPOSED_TOOL_TOOL.name, 'delete_composed_tool');
   });
 
   it('requires tool_id and confirm', () => {
@@ -475,7 +490,7 @@ describe('DELETE_COMPOSED_TOOL_TOOL', () => {
   it('check_confirmation script throws when confirm is false', async () => {
     const checkOp = DELETE_COMPOSED_TOOL_TOOL.operations[0];
     await assert.rejects(
-      () => runEmbeddedScript(checkOp, { tool_id: 5, confirm: false }),
+      () => runEmbeddedScript(checkOp, { $trigger: { tool_id: 5, confirm: false } }),
       /Script failed/,
     );
   });
@@ -483,21 +498,21 @@ describe('DELETE_COMPOSED_TOOL_TOOL', () => {
   it('check_confirmation script throws when confirm is absent', async () => {
     const checkOp = DELETE_COMPOSED_TOOL_TOOL.operations[0];
     await assert.rejects(
-      () => runEmbeddedScript(checkOp, { tool_id: 5 }),
+      () => runEmbeddedScript(checkOp, { $trigger: { tool_id: 5 } }),
       /Script failed/,
     );
   });
 
   it('check_confirmation script returns the tool_id when confirm is true', async () => {
     const checkOp = DELETE_COMPOSED_TOOL_TOOL.operations[0];
-    const result = await runEmbeddedScript(checkOp, { tool_id: 5, confirm: true });
+    const result = await runEmbeddedScript(checkOp, { $trigger: { tool_id: 5, confirm: true } });
     assert.equal(result, 5);
   });
 
   it('delete_tool uses DELETE method and interpolates tool_id in the URL', () => {
     const deleteOp = DELETE_COMPOSED_TOOL_TOOL.operations[1];
     assert.equal(deleteOp.config.method, 'DELETE');
-    assert.ok(deleteOp.config.url.includes('{{tool_id}}'));
-    assert.ok(deleteOp.config.url.includes('{{DIRECTUS_BASE_URL}}'));
+    assert.ok(deleteOp.config.url.includes('{{$trigger.tool_id}}'));
+    assert.ok(deleteOp.config.url.includes('{{$trigger.DIRECTUS_BASE_URL}}'));
   });
 });

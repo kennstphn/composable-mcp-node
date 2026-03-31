@@ -12,11 +12,12 @@ import {fetchToolsForCollation} from "../functions/get_tools_with_operations.mjs
  *                             Mustache interpolation against the calling flow's context
  * }
  *
- * Runtime requirements (injected into the calling context by App.mjs):
+ * Runtime requirements:
  *   - context.$env.DIRECTUS_BASE_URL — base URL of the Directus instance
- *   - context.$env.DIRECTUS_TOKEN    — bearer token for Directus authentication
- *   - context.$accountability        — accountability object from the calling context;
- *                                      passed through to the sub-tool's flow unchanged
+ *   - context.$env.DIRECTUS_TOKEN    — bearer token for Directus authentication, OR
+ *   - bearerToken parameter           — explicitly supplied bearer token (takes precedence)
+ *   - context.$accountability         — accountability object from the calling context;
+ *                                       passed through to the sub-tool's flow unchanged
  *
  * The operation resolves with the final `$last` value produced by the target tool's flow.
  */
@@ -45,9 +46,12 @@ export class CallTool {
     }
 
     const baseUrl = context?.$env?.DIRECTUS_BASE_URL;
+    // Accept the token from the explicit parameter (runtime path) or fall back to $env
+    // (useful when CallTool is driven directly from a test or a script that only has $env).
+    const resolvedToken = bearerToken || context?.$env?.DIRECTUS_TOKEN;
 
-    if (!bearerToken) {
-      throw new Error("CallTool: DIRECTUS_TOKEN is not available in context.$env");
+    if (!resolvedToken) {
+      throw new Error("CallTool: a bearer token is required for Directus authentication");
     }
     if (!baseUrl) {
       throw new Error("CallTool: DIRECTUS_BASE_URL is not available in context.$env");
@@ -56,8 +60,8 @@ export class CallTool {
     // Resolve input values against the current context before passing them to the sub-tool
     const resolvedInput = input !== undefined ? interpolateValue(input, context) : {};
 
-    // Fetch tools for the specified collation (and slug, to minimize data transfer)
-    let data = fetchToolsForCollation(context.$env.DIRECTUS_BASE_URL, bearerToken, tool_collation, tool_slug);
+    // Fetch tools for the specified collation, filtered by tool_slug (= the tool name) to minimise data transfer
+    const data = await fetchToolsForCollation(context.$env.DIRECTUS_BASE_URL, resolvedToken, tool_collation, tool_slug);
     const tools = data || [];
 
     // Parse inputSchema strings if needed
@@ -71,9 +75,8 @@ export class CallTool {
       }
     }
 
-    // Directus tools may use either `slug` (preferred) or `name` as the identifier —
-    // match whichever is present, consistent with the rest of the codebase.
-    const tool = tools.find(t => (t.slug || t.name) === tool_slug);
+    // Tools are identified by their `name` field — `tool_slug` in the config is the tool's name/identifier.
+    const tool = tools.find(t => t.name === tool_slug);
     if (!tool) {
       throw new Error(`CallTool: tool "${tool_slug}" not found in collation "${tool_collation}"`);
     }
@@ -87,7 +90,13 @@ export class CallTool {
       $trigger: resolvedInput,
       $accountability: context.$accountability,
       $env: context.$env,
-    }, bearerToken);
+    }, resolvedToken);
+
+    // Propagate any unhandled error from the sub-tool's flow (stored in $last when the
+    // last operation threw and had no reject chain)
+    if (subContext.$last instanceof Error) {
+      throw subContext.$last;
+    }
 
     return subContext.$last;
   }
