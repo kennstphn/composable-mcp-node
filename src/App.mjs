@@ -18,9 +18,11 @@ import {spec_implementation} from "./middleware/spec_implementation.mjs";
 
 export class App {
 
-  PORT = '';
-  DIRECTUS_BASE_URL = '';
-  NODE_ENV = '';
+  get PORT(){return this.env?.PORT};
+  get DIRECTUS_BASE_URL(){return this.env?.DIRECTUS_BASE_URL};
+  get NODE_ENV(){return this.env?.NODE_ENV};
+
+  env = null;
 
   constructor(env) {
     const options = ['PORT', 'DIRECTUS_BASE_URL', 'NODE_ENV'];
@@ -28,8 +30,8 @@ export class App {
       if (!Object.prototype.hasOwnProperty.call(env, name)) {
         throw new Error('missing app configuration: ' + name);
       }
-      this[name] = env[name];
     }
+    this.env = env;
 
     this.app = express();
     this.setupMiddleware();
@@ -187,7 +189,7 @@ export class App {
         }
 
         try {
-          const result = await this.run_default_tool(tool, args || {}, req);
+          const result = await this.run_tool(tool, args || {}, req);
           return res.mcp.tool_call_result(result.$last,result.$vars.isError);
         } catch (err) {
             return res.mcp.general_error(err);
@@ -326,7 +328,7 @@ export class App {
 
             }
 
-            let result = await this.run_default_tool(tool, inputData, req);
+            let result = await this.run_tool(tool, inputData, req);
             return res.mcp.tool_call_result(result.$last,result.$vars.isError);
         } catch (err) {
             return res.mcp.general_error(err);
@@ -396,35 +398,8 @@ export class App {
       return await this.executeFlow(tool, {
           $trigger: inputData,
           $accountability,
-          // DIRECTUS_BASE_URL and DIRECTUS_TOKEN are available to all tool scripts
-          // via `data.$env.*`.  DIRECTUS_TOKEN mirrors the caller's bearer token so
-          // that user-defined tool scripts can authenticate with Directus directly.
-          $env: {
-            DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
-            DIRECTUS_TOKEN: token,
-          },
+          $env: this.env,
       }, token);
-  }
-
-  async run_default_tool(tool, inputData, req){
-      console.log(`Running default tool "${tool.name}" with input:`, inputData);
-      // Inject the server's Directus credentials into $trigger so the default tool's
-      // fetch_request operations can reference them via {{$trigger.DIRECTUS_BASE_URL}}
-      // and {{$trigger.DIRECTUS_TOKEN}}.  Default tools are defined in the filesystem
-      // by trusted server code (not user-supplied), so this injection is safe.
-        let result =  await this.run_tool(tool, {
-            ...inputData,
-            DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
-            DIRECTUS_TOKEN: req.token,
-        }, req);
-
-        // Strip the injected Directus credentials from $trigger so they are not
-        // accidentally exposed to the client if the tool echoes its input back.
-        if(result && result.$trigger){
-            delete result.$trigger.DIRECTUS_BASE_URL;
-            delete result.$trigger.DIRECTUS_TOKEN;
-        }
-        return result;
   }
 
   get default_tools(){

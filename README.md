@@ -107,12 +107,11 @@ main.mjs
 | Key | Type | Notes |
 |-----|------|-------|
 | `$trigger` | object | Caller-supplied input arguments for the tool |
-| `$env` | object (frozen) | Server environment config — includes `DIRECTUS_BASE_URL` and `DIRECTUS_TOKEN` (the caller's bearer token) |
+| `$env` | object (frozen) | Server environment config — includes `DIRECTUS_BASE_URL` |
 | `$last` | any | Return value of the previous operation |
 | `$vars` | object | Mutable accumulator, writable by operations |
 | `[slug]` | any | Result of each completed operation, keyed by its slug |
 
-`DIRECTUS_TOKEN` is available in both `$env` and (for default tools) `$trigger`, so any operation can authenticate back to Directus using `{{$env.DIRECTUS_TOKEN}}` without hardcoding credentials.
 
 ### FetchRequest interpolation
 
@@ -157,7 +156,15 @@ curl -X POST http://localhost:8787/mcp \
 
 The add/edit operation tools are split by type so each has purpose-built input fields instead of a generic `type`+`config` pair. This means the MCP client can prompt more specifically — `code` for scripts, `url`/`method`/`headers`/`body` for HTTP calls.
 
-When a default tool executes, the server injects `DIRECTUS_BASE_URL` and `DIRECTUS_TOKEN` into `$trigger` so the tool's `fetch_request` operations can reference them as `{{$trigger.DIRECTUS_BASE_URL}}` and `{{$trigger.DIRECTUS_TOKEN}}`. These are stripped from the response to avoid leaking credentials back to the caller.
+## FetchRequest details
+When a fetch_request operation runs, the server performs interpolation on the URL, headers, and body using the current context. 
+This allows tools to dynamically construct requests based on previous operation results or caller input. Once the url is resolved, 
+a check is made to see if the following conditions are met
+- The url starts with the Directus base URL
+- the headers DO NOT include an authorization header.
+
+If both conditions are met, the server automatically injects an `Authorization Bearer <token>` header with the caller's token. 
+This keeps tool calls to the backend authenticated. 
 
 ---
 
