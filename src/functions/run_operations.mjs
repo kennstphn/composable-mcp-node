@@ -8,6 +8,11 @@ const operationTypes = {
   'call_tool': CallTool,
 };
 
+export function get_fresh_vars(){
+    return {
+        isError:false // lets operations set this to true to indicate an error state for the tool response.
+    }
+}
 /**
  * Run a chain of operations starting from start_slug.
  *
@@ -29,9 +34,7 @@ export async function run_operations(operations, start_slug, initialContext = {}
   // 2. Initialise context from provided seed
   const context = {
     $last: null,
-    $vars: {
-      isError:false // lets operations set this to true to indicate an error state for the tool response.
-    },
+    $vars: get_fresh_vars(),
     ...initialContext,
   };
 
@@ -78,6 +81,10 @@ export async function run_operations(operations, start_slug, initialContext = {}
       }
 
       const instance = new OpClass(op.config || {});
+
+      // Inject runtime dependencies for operations that need to call sub-operations
+      if (!instance.run_operations) instance.run_operations = run_operations;
+      if (!instance.get_fresh_vars)  instance.get_fresh_vars = get_fresh_vars;
 
       let result = null;
       let is_error = false;

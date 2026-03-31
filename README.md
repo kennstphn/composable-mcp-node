@@ -35,7 +35,7 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 
 | File | Status | Description |
 |------|--------|-------------|
-| `src/App.mjs` | ✅ working | Express server, Directus tool loader, MCP/REST endpoints, landing page |
+| `src/App.mjs` | ✅ working | Express server, Directus tool loader, MCP endpoints, landing page |
 | `src/functions/run_operations.mjs` | ✅ working | Iterative flow runner with loop-guard and context tracking |
 | `src/operations/ScriptOperation.mjs` | ✅ working | Runs user JS in a sandboxed `node:vm` context |
 | `src/operations/FetchRequest.mjs` | ✅ working | Outbound HTTP calls with configurable method, headers, body |
@@ -48,7 +48,7 @@ Each operation receives a shared **context** object and can read `$last` (the pr
 
 ### Working pieces
 
-- **Express HTTP server** — `GET /`, `GET /health`, `GET /initialize`, `POST /initialize`, `POST /mcp`, `POST /mcp/:tool_collation`, `GET /rest/b/:tool_collation`, `POST /rest/b/events/:tool_collation/:tool_name`, `GET /rest/compose`, `POST /rest/compose/events/:tool_name`
+- **Express HTTP server** — `GET /`, `GET /health`, `GET /initialize`, `POST /initialize`, `POST /mcp`, `POST /mcp/:tool_collation`
 - **Default tools endpoint** — `POST /mcp` serves the 11 built-in management tools directly from the filesystem; no Directus round-trip for the tool list
 - **Directus loader** — fetches user-defined tool definitions per request from a Directus collection at `POST /mcp/:tool_collation`
 - **Iterative flow runner** — executes a chain of operations by slug, follows resolve/reject links, guards against infinite loops (max 50 visits per operation)
@@ -80,14 +80,6 @@ main.mjs
        │    └─ setupPermissions()    → src/directus/permissions.mjs
        ├─ POST /mcp                 → DEFAULT_TOOLS (filesystem) → src/directus/default_tools.mjs
        ├─ POST /mcp/:tool_collation
-       ├─ GET  /rest/b/:tool_collation
-       ├─ POST /rest/b/events/:tool_collation/:tool_name
-       ├─ GET  /rest/compose
-       └─ POST /rest/compose/events/:tool_name
-              └─ run_operations(operations, start_slug, context)
-                    ├─ ScriptOperation   — sandboxed JS execution
-                    ├─ FetchRequest      — outbound HTTP calls
-                    └─ CallTool          — calls another Directus-backed tool
 ```
 
 ### Operation schema (what Directus stores)
@@ -260,16 +252,6 @@ curl -X POST http://localhost:8787/mcp/my-collation \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <directus-token>' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"my-tool","arguments":{"input":"hello"}}}'
-
-# invoke a tool (REST — same result, no JSON-RPC envelope)
-curl -X POST http://localhost:8787/rest/b/events/my-collation/my-tool \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer <directus-token>' \
-  -d '{"input": "hello"}'
-
-# list tools in a collation via the REST interface
-curl http://localhost:8787/rest/b/my-collation \
-  -H 'Authorization: Bearer <directus-token>'
 
 # create a new tool using the default tools at POST /mcp
 curl -X POST http://localhost:8787/mcp \

@@ -11,10 +11,38 @@ module.exports = async function(data) {
   // Return plain object (or array/string). Value stored in data[this.slug] and next op's $last. */
 }`
 
+function operation(slug,type,config,resolve=null,reject=null) {
+    return {
+        slug,
+        type,
+        config,
+        resolve,
+        reject
+    }
+}
+
+const INVOCATION_SCHEMA = {
+  type: 'object',
+      description: 'The tool call to be run by this operation. NOTE: These values are interpolated against the ' +
+  'parent tool\'s execution context at runtime, so you can reference any prior operation or input value ' +
+  'in the tool using {{template}} syntax. For complex objects, build the object in a preceding run_script ' +
+  'operation and reference it here via {{ $last }} or {{ a_previous_slug.some_prop }}.',
+      properties:{
+    tool_collation: { type: 'string', description: 'The collation (namespace) the invoked tool belongs to' },
+    tool_name:      { type: 'string', description: 'The name of the tool to invoke' },
+    iteration_mode: { type: 'string', enum: ['serial', 'parallel'], description: 'Whether to invoke the tool calls in series or in parallel when given an array as input (default: serial)' },
+    tool_arguments: { oneOf: [
+      { type: 'object' },
+      { type: 'array', items: { type: 'object' } }
+    ], description: 'Input arguments to pass to the tool. Can be an object or an array of objects for multiple invocations.' },
+  },
+  required:['tool_collation', 'tool_name']
+}
+
 /**
  * Default tool definitions — served directly from the filesystem at POST /mcp.
  *
- * These eleven tools let an authenticated user manage tool definitions inside
+ * These tools let an authenticated user manage tool definitions inside
  * Directus through the MCP interface.  They are NOT stored in Directus; the
  * server loads them from this module and executes them locally.
  *
@@ -484,13 +512,14 @@ export const TEST_COMPOSED_TOOL_TOOL = {
   start_slug: 'run',
   operations: [
     {
-      // Stub — test_composed_tool is handled specially in App.mjs before this is reached.
-      slug: 'run',
-      type: 'run_script',
-      config: { code: 'module.exports = async function() { return null; };' },
-      resolve: null,
-      reject: null,
-    },
+        slug: 'call_tool',
+        type: 'call_tool',
+        config: {
+            tool_collation: '{{$trigger.tool_collation}}',
+            tool_slug: '{{$trigger.tool_name}}',
+            tool_arguments: '{{$trigger.arguments}}',
+        }
+    }
   ],
 };
 
@@ -541,18 +570,185 @@ export const DELETE_COMPOSED_TOOL_TOOL = {
   ],
 };
 
+export const DELETE_OPERATION_TOOL ={
+    name: 'delete_operation',
+    title: 'Delete Operation Step',
+    description: 'Permanently deletes an operation step from a composed tool. ',
+    inputSchema: {
+        type: 'object',
+        properties: {
+            operation_id: { type: 'integer', description: 'The numeric ID of the operation to delete' },
+            tool:{
+                type:'object',
+                description:'The parent tool of the operation, used for an additional safety check to prevent deleting the wrong operation when given a wrong ID.',
+                properties:{
+                    name: { type: 'string', description: 'The name of the parent tool' },
+                    tool_collation: { type: 'string', description: 'The collation of the parent tool' }
+                },
+                required:['name','tool_collation']
+            }
+         },
+        required: ['operation_id', 'tool'],
+    },
+    start_slug: 'init',
+  operations:[
+    // first, get the operation to check if it exists, and to make sure that it's parent tool is the one we expect
+    // (avoid deleting the wrong operation when given a wrong ID)
+      operation('fetch_operation','fetch_request',{
+        url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}?fields=tool.name,tool.tool_collation',
+      },'check_tool',null),
+
+      // check that the operation's parent tool matches the expected tool from the input
+        operation('check_tool','run_script',{
+          code:`module.exports = async function(data) {
+            let {name,tool_collation}       = data.fetch_operation?.data?.tool   || {};
+            if(name !== data.$trigger.tool.name || tool_collation !== data.$trigger.tool.tool_collation){
+              throw new Error("Operation " + data.$trigger.operation_id + " does not belong to tool " + data.$trigger.tool.name + " in collation " + data.$trigger.tool.tool_collation + ". Aborting deletion.");
+            }
+            return true;
+          }`
+        },'delete_operation',null),
+      operation('delete_operation','fetch_request',{
+        url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
+        method:'DELETE',
+      },"message_success",null),
+      operation('message_success','run_script',{code:"module.exports = () => 'Operation ' + {{$trigger.operation_id}} + ' deleted successfully.';"},null,null)
+  ]
+
+}
+
+export const ADD_CALL_TOOL_OPERATION_TOOL = {
+    name: 'add_call_tool_operation',
+    title: 'Add a Call Tool Operation to a composed tool',
+    description: 'Adds a call_tool operation step to an existing tool.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tool_id:  { type: 'integer', description: 'ID of the parent tool for this operation' },
+        slug:     { type: 'string',  description: 'Unique slug for this operation within the tool' },
+        invocation: INVOCATION_SCHEMA, // used in add
+        resolve:  { type: 'string',  description: 'Slug of next operation on success (omit to stop)' },
+        reject:   { type: 'string',  description: 'Slug of next operation on error (omit to stop)' },
+      },
+      required: ['tool_id', 'slug', 'invocation'],
+    },
+    start_slug: 'build_body',
+    operations:[
+        operation('build_body','run_script',{code:`
+        module.exports = async function(data) {
+          let result = {
+              tool:    data.$trigger.tool_id,
+              slug:    data.$trigger.slug,
+              type:    'call_tool',
+              config:  {
+                tool_collation: data.$trigger.invocation.tool_collation,
+                tool_name: data.$trigger.invocation.tool_name,
+              }
+          };
+          // build the optional config fields only when they are provided, to avoid overwriting existing values with 
+          // undefined when editing an existing operation
+          if(data.$trigger.invocation.iteration_mode) result.config.iteration_mode = data.$trigger.invocation.iteration_mode;
+          if(data.$trigger.invocation.tool_arguments) result.config.tool_arguments = data.$trigger.invocation.tool_arguments;
+          if(data.$trigger.resolve) result.resolve = data.$trigger.resolve;
+          if(data.$trigger.reject) result.reject = data.$trigger.reject;
+          
+          return result;
+        }
+        `},'post_operation',null),
+        operation('post_operation','fetch_request',{
+          url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: '{{build_body}}',
+        } )
+    ]
+}
+
+export const EDIT_CALL_TOOL_OPERATION_TOOL = {
+    name: 'edit_call_tool_operation',
+    title: 'Edit a Call Tool Operation in a composed tool',
+    description: 'Updates a call_tool operation step.  Only supplied fields are changed.',
+    inputSchema: {
+        type: 'object',
+        properties: {
+            operation_id: { type: 'integer', description: 'ID of the operation to update' },
+            tool_id: { type: 'integer', description: 'ID of the parent tool for this operation (used for safety checks)' },
+            slug:         { type: 'string',  description: 'New slug for this operation' },
+            invocation: INVOCATION_SCHEMA, // used in edit
+            resolve:      { type: 'string',  description: 'Slug of next operation on success (omit to keep current)' },
+            reject:       { type: 'string',  description: 'Slug of next operation on error (omit to keep current)' },
+        },
+        required: ['operation_id', 'tool_id'],
+    },
+    operations:[
+        operation('get_operation','fetch_request',{
+            url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}?fields=tool,id',
+        },'validate_tool_id'),
+        operation('validate_tool_id','run_script',{code:`
+        module.exports = async function(data) {
+    let expected_tool_id = data.$trigger.tool_id;
+    let actual_tool_id = data.get_operation?.data?.tool;
+    if(expected_tool_id !== actual_tool_id) throw new Error("Operation " + data.$trigger.operation_id + " does not belong to tool " + data.$trigger.tool_id + ". Aborting edit.");
+    return true;
+        }
+        `},'build_patch'),
+        operation('build_patch','run_script',{code:`
+        module.exports = async function(data) {
+        let patch = {};
+        if(data.$trigger.slug) patch.slug = data.$trigger.slug;
+        if(data.$trigger.resolve) patch.resolve = data.$trigger.resolve;
+        if(data.$trigger.reject) patch.reject = data.$trigger.reject;
+        if(data.$trigger.invocation) {
+            patch.config = {};
+            if(data.$trigger.invocation.tool_collation) patch.config.tool_collation = data.$trigger.invocation.tool_collation;
+            if(data.$trigger.invocation.tool_name) patch.config.tool_name = data.$trigger.invocation.tool_name;
+            if(data.$trigger.invocation.iteration_mode) patch.config.iteration_mode = data.$trigger.invocation.iteration_mode;
+            if(data.$trigger.invocation.tool_arguments) patch.config.tool_arguments = data.$trigger.invocation.tool_arguments;
+            
+            // config has to be a json string, so convert it now
+            patch.config = JSON.stringify(patch.config);
+        }
+        
+        return patch;
+        }
+        `},'patch_operation'),
+        operation('patch_operation','fetch_request',{
+          url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: '{{patch_operation}}',
+        })
+    ]
+}
+
 // ─── All default tools ────────────────────────────────────────────────────────
 
 export const DEFAULT_TOOLS = [
-  LIST_OPERATION_TYPES_TOOL,
-  CREATE_TOOL_TOOL,
-  ADD_RUN_SCRIPT_OPERATION_TOOL,
-  ADD_FETCH_REQUEST_OPERATION_TOOL,
-  EDIT_TOOL_TOOL,
-  EDIT_RUN_SCRIPT_OPERATION_TOOL,
-  EDIT_FETCH_REQUEST_OPERATION_TOOL,
+  // tool management
   LIST_COLLATIONS_TOOL,
+  CREATE_TOOL_TOOL,
+  EDIT_TOOL_TOOL,
+  DELETE_COMPOSED_TOOL_TOOL,
   LIST_COMPOSED_TOOLS_TOOL,
   TEST_COMPOSED_TOOL_TOOL,
-  DELETE_COMPOSED_TOOL_TOOL,
+
+  // operation management
+  LIST_OPERATION_TYPES_TOOL,
+  DELETE_OPERATION_TOOL,
+
+    // script operations
+    ADD_RUN_SCRIPT_OPERATION_TOOL,
+    EDIT_RUN_SCRIPT_OPERATION_TOOL,
+
+    // fetch_request operations
+    ADD_FETCH_REQUEST_OPERATION_TOOL,
+    EDIT_FETCH_REQUEST_OPERATION_TOOL,
+
+    // call_tool operations
+    ADD_CALL_TOOL_OPERATION_TOOL,
+    EDIT_CALL_TOOL_OPERATION_TOOL,
 ];
