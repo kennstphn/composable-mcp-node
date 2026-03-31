@@ -39,42 +39,51 @@ export class ScriptOperation {
     if (data.$env && typeof data.$env === 'object') Object.freeze(data.$env);
     if (data.$last && typeof data.$last === 'object') Object.freeze(data.$last);
 
-    try {
-      // Create a fresh VM context with the data object
-      const sandbox = { data, module: {}, exports: {} };
-      const vmContext = vm.createContext(sandbox);
+    // Create a fresh VM context with the data object
+    const sandbox = { data, module: {}, exports: {} };
+    const vmContext = vm.createContext(sandbox);
 
-      // Wrap the user's code so it properly defines module.exports
-      const wrappedCode = `
-        ${code}
-        
-        // If user forgot module.exports, provide a fallback
-        if (typeof module.exports !== 'function') {
-          module.exports = async function(data) { return {}; };
-        }
-      `;
+    // Wrap the user's code so it properly defines module.exports
+    const wrappedCode = `
+      ${code}
+      
+      // If user forgot module.exports, provide a fallback
+      if (typeof module.exports !== 'function') {
+        module.exports = async function(data) { return {}; };
+      }
+    `;
 
-      const script = new vm.Script(wrappedCode);
+    let script;
+    try{
+      script = new vm.Script(wrappedCode);
+    }catch (err){
+      throw new Error("Script compilation error: " + err.message);
+    }
 
+    try{
       // Execute the script (this defines module.exports)
       script.runInContext(vmContext);
-
-      const userFunction = sandbox.module.exports;
-
-      if (typeof userFunction !== 'function') {
-        throw new Error("Script must export a function: module.exports = async function(data) {...}");
-      }
-
-      // Call the user's function and await the result
-      const result = await userFunction(data);
-
-      // Return whatever the user returned (or empty object)
-      return result !== undefined ? result : {};
-
-    } catch (err) {
-      const scriptError = new Error(`Script failed: ${err.message}`);
-      scriptError.original = err;
-      throw scriptError;
+    }catch (err){
+      throw new Error("Script execution error: " + err.message);
     }
+
+    const userFunction = sandbox.module.exports;
+
+    if (typeof userFunction !== 'function') {
+      throw new Error("Script must export a function: module.exports = async function(data) {...}");
+    }
+
+    let result;
+    try{
+      // Call the user's function and await the result
+      result = await userFunction(data);
+
+    }catch (err){
+      throw new Error("Error from user function: " + err.message);
+    }
+
+    // Return whatever the user returned (or empty object)
+    return result !== undefined ? result : {};
+
   }
 }

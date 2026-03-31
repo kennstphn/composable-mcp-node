@@ -7,7 +7,7 @@ export async function fetchToolsForCollation(baseUrl, bearerToken, toolCollation
 
     let cache_config = {
         key: {toolCollation,toolSlug},
-        duration_ms: 1000 * 60, // cache for 1 minute
+        duration_ms: 1000, // cache for 1 second.
     };
 
     return await fetch_cacheable_data(cache_config, async () => {
