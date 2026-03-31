@@ -1,3 +1,16 @@
+const DESCRIPTION_JAVASCRIPT_CODE = `JavaScript code. Runs in a sandboxed VM (no console, fetch, fs, process, Buffer, DOM globals, or external libs. Plain JS + async/await + data params only).
+
+module.exports = async function(data) {
+  /* const {
+       $trigger,        // immutable original input (e.g., { name: 'foo' })
+       $accountability, // user context
+       $last,           // immediate prior op output
+       a_previous_slug, // return from some prior op with slug "a_previous_slug"
+       // ...any prior operation by its slug
+     } = data;
+  // Return plain object (or array/string). Value stored in data[this.slug] and next op's $last. */
+}`
+
 /**
  * Default tool definitions — served directly from the filesystem at POST /mcp.
  *
@@ -99,20 +112,7 @@ export const ADD_RUN_SCRIPT_OPERATION_TOOL = {
     properties: {
       tool_id:  { type: 'integer', description: 'ID of the parent tool' },
       slug:     { type: 'string',  description: 'Unique slug for this operation within the tool' },
-      code:     { type: 'string',
-        description: `JavaScript code. Runs in a sandboxed VM (no console, fetch, fs, process, Buffer, DOM globals, or external libs. Plain JS + async/await + data params only).
-
-module.exports = async function(data) {
-  /* const {
-       $trigger,        // immutable original input (e.g., { name: 'foo' })
-       $accountability, // user context
-       $last,           // immediate prior op output
-       a_previous_slug, // return from some prior op with slug "a_previous_slug"
-       // ...any prior operation by its slug
-     } = data;
-  // Return plain object (or array/string). Value stored in data[this.slug] and next op's $last. */
-}`
-      },
+      code:     { type: 'string',  description: DESCRIPTION_JAVASCRIPT_CODE},
       resolve:  { type: 'string',  description: 'Slug of next operation on success (omit to stop)' },
       reject:   { type: 'string',  description: 'Slug of next operation on error (omit to stop)' },
     },
@@ -289,7 +289,7 @@ export const EDIT_RUN_SCRIPT_OPERATION_TOOL = {
     properties: {
       operation_id: { type: 'integer', description: 'ID of the operation to update' },
       slug:         { type: 'string',  description: 'New slug for this operation' },
-      code:         { type: 'string',  description: 'New JavaScript code for the script' },
+      code:         { type: 'string',  description: DESCRIPTION_JAVASCRIPT_CODE },
       resolve:      { type: 'string',  description: 'Slug of next operation on success (omit to keep current)' },
       reject:       { type: 'string',  description: 'Slug of next operation on error (omit to keep current)' },
     },
