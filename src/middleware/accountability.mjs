@@ -36,11 +36,16 @@ export function accountability(baseUrl){
             return next();
         }
 
+        // Best-effort: enrich the request with Directus user details.
+        // Failures (e.g. Directus unreachable or token not yet verified) set
+        // $accountability to null and continue — the token is still validated
+        // by whichever Directus API call the route makes first.
         loadAccountability(req.token, baseUrl).then(accountability => {
             req.$accountability = accountability;
             next();
-        }).catch(err => {
-            res.status(401).json({ state: 'invalid_token', error: err.message });
+        }).catch(() => {
+            req.$accountability = null;
+            next();
         });
 
     }

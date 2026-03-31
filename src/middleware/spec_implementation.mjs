@@ -20,7 +20,10 @@ export function spec_implementation(req, res, next){
             })
         },
         general_error:(err)=>{
-            res.json({
+            // Use err.status for HTTP status when set (e.g. Directus 401/403 errors);
+            // fall back to 400 for JSON-RPC protocol errors (negative codes) and 500 otherwise.
+            const httpStatus = err.status || (err.code < 0 ? 400 : 500);
+            res.status(httpStatus).json({
                 "jsonrpc": "2.0",
                 "id": id,
                 "error": {
@@ -30,7 +33,7 @@ export function spec_implementation(req, res, next){
             })
         },
         empty_response(code){
-            return res.send(code).end();
+            return res.sendStatus(code);
         }
     }
 

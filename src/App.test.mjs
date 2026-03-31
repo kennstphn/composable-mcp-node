@@ -1,12 +1,13 @@
-import { describe, it, before, after, mock } from 'node:test';
+import { describe, it, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { App } from './App.mjs';
+import { clearFetchCache } from './functions/fetch_cachable_data.mjs';
 
 // ─── Shared mock tool data ────────────────────────────────────────────────────
 
 const ECHO_TOOL = {
   slug: 'echo',
-  name: 'Echo',
+  name: 'echo',
   description: 'Returns the input message',
   inputSchema: {
     type: 'object',
@@ -18,7 +19,7 @@ const ECHO_TOOL = {
     {
       slug: 'run',
       type: 'run_script',
-      config: { code: 'module.exports = async function(data) { return data.message; }' },
+      config: { code: 'module.exports = async function(data) { return data.$trigger.message; }' },
       resolve: null,
       reject: null,
     },
@@ -27,7 +28,7 @@ const ECHO_TOOL = {
 
 const SIMPLE_TOOL = {
   slug: 'greet',
-  name: 'Greet',
+  name: 'greet',
   description: 'Returns a greeting',
   inputSchema: null,
   start_slug: 'step',
@@ -120,6 +121,7 @@ describe('App', () => {
     let app, base;
     before(async () => { app = makeApp(); base = await startApp(app); });
     after(() => app.close());
+    beforeEach(() => clearFetchCache());
 
     it('returns 401 when Authorization header is missing for tools/list', async () => {
       const res = await fetch(`${base}/mcp`, {
@@ -157,11 +159,11 @@ describe('App', () => {
       assert.ok(names.includes('edit_fetch_request_operation'));
       assert.ok(names.includes('list_collations'));
       assert.ok(names.includes('list_composed_tools'));
-      assert.ok(names.includes('run_composed_tool'));
+      assert.ok(names.includes('test_composed_tool'));
       assert.ok(names.includes('delete_composed_tool'));
     });
 
-    it('executes list_operation_types and returns the two operation types', async () => {
+    it('executes list_operation_types and returns the supported operation types', async () => {
       const res = await fetch(`${base}/mcp`, {
         method: 'POST',
         headers: {
@@ -177,7 +179,7 @@ describe('App', () => {
       });
       assert.equal(res.status, 200);
       const body = await res.json();
-      assert.equal(body.result.isError, undefined);
+      assert.equal(body.result.isError, false);
       const parsed = JSON.parse(body.result.content[0].text);
       assert.ok(parsed.includes('run_script'));
       assert.ok(parsed.includes('fetch_request'));
@@ -210,7 +212,7 @@ describe('App', () => {
             method: 'tools/call',
             params: {
               name: 'create_tool',
-              arguments: { slug: 'test', name: 'Test', tool_collation: 'mine', start_slug: 's1' },
+              arguments: { title: 'Test', name: 'test', tool_collation: 'mine', start_slug: 's1' },
             },
           }),
         });
@@ -222,7 +224,7 @@ describe('App', () => {
       }
     });
 
-    it('returns isError when the named tool does not exist', async () => {
+    it('returns a JSON-RPC error when the named tool does not exist', async () => {
       const res = await fetch(`${base}/mcp`, {
         method: 'POST',
         headers: {
@@ -236,10 +238,10 @@ describe('App', () => {
           params: { name: 'nonexistent_tool', arguments: {} },
         }),
       });
-      assert.equal(res.status, 200);
+      assert.equal(res.status, 400);
       const body = await res.json();
-      assert.equal(body.result.isError, true);
-      assert.ok(body.result.content[0].text.includes('nonexistent_tool'));
+      assert.ok(body.error);
+      assert.ok(body.error.message.includes('nonexistent_tool'));
     });
 
     it('returns 400 for an unknown JSON-RPC method', async () => {
@@ -268,9 +270,9 @@ describe('App', () => {
       assert.ok(body.result.capabilities.tools);
     });
 
-    // ── run_composed_tool ───────────────────────────────────────────────────
+    // ── test_composed_tool ───────────────────────────────────────────────────
 
-    it('run_composed_tool fetches from Directus and executes the tool', async () => {
+    it('test_composed_tool fetches from Directus and executes the tool', async () => {
       const orig = mockDirectusFetch((url) => {
         if (url.includes('/users/me'))   return { ok: true, status: 200, json: async () => ({ data: {} }), headers: { get: () => 'application/json' } };
         if (url.includes('/items/tools')) return { ok: true, status: 200, json: async () => ({ data: [SIMPLE_TOOL] }), headers: { get: () => 'application/json' } };
@@ -282,19 +284,19 @@ describe('App', () => {
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-token' },
           body: JSON.stringify({
             jsonrpc: '2.0', id: 10, method: 'tools/call',
-            params: { name: 'run_composed_tool', arguments: { tool_collation: 'my-col', tool_name: 'greet' } },
+            params: { name: 'test_composed_tool', arguments: { tool_collation: 'my-col', tool_name: 'greet' } },
           }),
         });
         assert.equal(res.status, 200);
         const body = await res.json();
-        assert.equal(body.result.isError, undefined);
+        assert.equal(body.result.isError, false);
         assert.equal(body.result.content[0].text, 'hello');
       } finally {
         restoreGlobalFetch(orig);
       }
     });
 
-    it('run_composed_tool returns isError when the named tool is not in the collation', async () => {
+    it('test_composed_tool returns a JSON-RPC error when the named tool is not in the collation', async () => {
       const orig = mockDirectusFetch((url) => {
         if (url.includes('/items/tools')) return { ok: true, status: 200, json: async () => ({ data: [] }), headers: { get: () => 'application/json' } };
         return { ok: true, status: 200, json: async () => ({ data: {} }), headers: { get: () => 'application/json' } };
@@ -305,30 +307,30 @@ describe('App', () => {
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-token' },
           body: JSON.stringify({
             jsonrpc: '2.0', id: 11, method: 'tools/call',
-            params: { name: 'run_composed_tool', arguments: { tool_collation: 'my-col', tool_name: 'missing' } },
+            params: { name: 'test_composed_tool', arguments: { tool_collation: 'my-col', tool_name: 'missing' } },
           }),
         });
-        assert.equal(res.status, 200);
+        assert.equal(res.status, 400);
         const body = await res.json();
-        assert.equal(body.result.isError, true);
-        assert.ok(body.result.content[0].text.includes('missing'));
+        assert.ok(body.error);
+        assert.ok(body.error.message.includes('missing'));
       } finally {
         restoreGlobalFetch(orig);
       }
     });
 
-    it('run_composed_tool returns isError when tool_collation or tool_name is absent', async () => {
+    it('test_composed_tool returns a JSON-RPC error when tool_collation or tool_name is absent', async () => {
       const res = await fetch(`${base}/mcp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-token' },
         body: JSON.stringify({
           jsonrpc: '2.0', id: 12, method: 'tools/call',
-          params: { name: 'run_composed_tool', arguments: { tool_collation: 'my-col' } },
+          params: { name: 'test_composed_tool', arguments: { tool_collation: 'my-col' } },
         }),
       });
-      assert.equal(res.status, 200);
+      assert.equal(res.status, 400);
       const body = await res.json();
-      assert.equal(body.result.isError, true);
+      assert.ok(body.error);
     });
   });
 
@@ -338,6 +340,7 @@ describe('App', () => {
     let app, base;
     before(async () => { app = makeApp(); base = await startApp(app); });
     after(() => app.close());
+    beforeEach(() => clearFetchCache());
 
     it('returns 401 when Authorization header is missing', async () => {
       const res = await fetch(`${base}/mcp/my-collation`, {
@@ -433,7 +436,7 @@ describe('App', () => {
       }
     });
 
-    it('returns isError in result when tools/call tool is not found', async () => {
+    it('returns a JSON-RPC error when tools/call tool is not found', async () => {
       const orig = mockDirectusFetch(() => directusResponse([]));
       try {
         const res = await fetch(`${base}/mcp/my-collation`, {
@@ -449,10 +452,10 @@ describe('App', () => {
             params: { name: 'nonexistent', arguments: {} },
           }),
         });
-        assert.equal(res.status, 200);
+        assert.equal(res.status, 400);
         const body = await res.json();
-        assert.equal(body.result.isError, true);
-        assert.ok(body.result.content[0].text.includes('nonexistent'));
+        assert.ok(body.error);
+        assert.ok(body.error.message.includes('nonexistent'));
       } finally {
         restoreGlobalFetch(orig);
       }
@@ -497,13 +500,14 @@ describe('App', () => {
 
   // ─── GET /rest/:tool_collation ────────────────────────────────────────────
 
-  describe('GET /rest/:tool_collation', () => {
+  describe('GET /rest/b/:tool_collation', () => {
     let app, base;
     before(async () => { app = makeApp(); base = await startApp(app); });
     after(() => app.close());
+    beforeEach(() => clearFetchCache());
 
     it('returns 401 when Authorization header is missing', async () => {
-      const res = await fetch(`${base}/rest/my-collation`);
+      const res = await fetch(`${base}/rest/b/my-collation`);
       assert.equal(res.status, 401);
       const body = await res.json();
       assert.ok(body.error);
@@ -512,14 +516,14 @@ describe('App', () => {
     it('returns tool descriptors for the collation', async () => {
       const orig = mockDirectusFetch(() => directusResponse([SIMPLE_TOOL, ECHO_TOOL]));
       try {
-        const res = await fetch(`${base}/rest/my-collation`, {
+        const res = await fetch(`${base}/rest/b/my-collation`, {
           headers: { 'Authorization': 'Bearer test-token' },
         });
         assert.equal(res.status, 200);
         const body = await res.json();
-        assert.ok(Array.isArray(body.tools));
-        assert.equal(body.tools.length, 2);
-        const names = body.tools.map(t => t.name);
+        assert.ok(Array.isArray(body.result.tools));
+        assert.equal(body.result.tools.length, 2);
+        const names = body.result.tools.map(t => t.name);
         assert.ok(names.includes('greet'));
         assert.ok(names.includes('echo'));
       } finally {
@@ -535,7 +539,7 @@ describe('App', () => {
         return directusResponse([]);
       });
       try {
-        await fetch(`${base}/rest/marketing`, {
+        await fetch(`${base}/rest/b/marketing`, {
           headers: { 'Authorization': 'Bearer my-token' },
         });
         assert.ok(capturedUrl.includes('filter%5Btool_collation%5D%5B_eq%5D=marketing'));
@@ -548,7 +552,7 @@ describe('App', () => {
     it('returns the Directus error status when Directus rejects the token', async () => {
       const orig = mockDirectusFetch(() => directusError(401));
       try {
-        const res = await fetch(`${base}/rest/my-collation`, {
+        const res = await fetch(`${base}/rest/b/my-collation`, {
           headers: { 'Authorization': 'Bearer bad-token' },
         });
         assert.equal(res.status, 401);
@@ -558,15 +562,16 @@ describe('App', () => {
     });
   });
 
-  // ─── POST /rest/events/:tool_collation/:tool_name ─────────────────────────
+  // ─── POST /rest/b/events/:tool_collation/:tool_name ───────────────────────
 
-  describe('POST /rest/events/:tool_collation/:tool_name', () => {
+  describe('POST /rest/b/events/:tool_collation/:tool_name', () => {
     let app, base;
     before(async () => { app = makeApp(); base = await startApp(app); });
     after(() => app.close());
+    beforeEach(() => clearFetchCache());
 
     it('returns 401 when Authorization header is missing', async () => {
-      const res = await fetch(`${base}/rest/events/my-collation/echo`, {
+      const res = await fetch(`${base}/rest/b/events/my-collation/echo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: 'hello' }),
@@ -579,7 +584,7 @@ describe('App', () => {
     it('executes the named tool and returns MCP content', async () => {
       const orig = mockDirectusFetch(() => directusResponse([ECHO_TOOL]));
       try {
-        const res = await fetch(`${base}/rest/events/my-collation/echo`, {
+        const res = await fetch(`${base}/rest/b/events/my-collation/echo`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -589,8 +594,8 @@ describe('App', () => {
         });
         assert.equal(res.status, 200);
         const body = await res.json();
-        assert.ok(Array.isArray(body.content));
-        assert.equal(body.content[0].text, 'world');
+        assert.ok(Array.isArray(body.result.content));
+        assert.equal(body.result.content[0].text, 'world');
       } finally {
         restoreGlobalFetch(orig);
       }
@@ -599,7 +604,7 @@ describe('App', () => {
     it('returns 404 when the named tool is not in the collation', async () => {
       const orig = mockDirectusFetch(() => directusResponse([SIMPLE_TOOL]));
       try {
-        const res = await fetch(`${base}/rest/events/my-collation/nonexistent`, {
+        const res = await fetch(`${base}/rest/b/events/my-collation/nonexistent`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -609,8 +614,8 @@ describe('App', () => {
         });
         assert.equal(res.status, 404);
         const body = await res.json();
-        assert.equal(body.isError, true);
-        assert.ok(body.content[0].text.includes('nonexistent'));
+        assert.ok(body.error);
+        assert.ok(body.error.message.includes('nonexistent'));
       } finally {
         restoreGlobalFetch(orig);
       }
@@ -619,7 +624,7 @@ describe('App', () => {
     it('returns 400 when input fails schema validation', async () => {
       const orig = mockDirectusFetch(() => directusResponse([ECHO_TOOL]));
       try {
-        const res = await fetch(`${base}/rest/events/my-collation/echo`, {
+        const res = await fetch(`${base}/rest/b/events/my-collation/echo`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -629,8 +634,8 @@ describe('App', () => {
         });
         assert.equal(res.status, 400);
         const body = await res.json();
-        assert.equal(body.isError, true);
-        assert.ok(body.content[0].text.includes('Invalid input'));
+        assert.ok(body.error);
+        assert.ok(body.error.message.includes("'message'"));
       } finally {
         restoreGlobalFetch(orig);
       }
@@ -639,7 +644,7 @@ describe('App', () => {
     it('returns the Directus error status when Directus rejects the token', async () => {
       const orig = mockDirectusFetch(() => directusError(403));
       try {
-        const res = await fetch(`${base}/rest/events/my-collation/echo`, {
+        const res = await fetch(`${base}/rest/b/events/my-collation/echo`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -863,7 +868,7 @@ describe('App', () => {
 
     it('returns state:complete when everything is in place', async () => {
       const TOOL_FIELDS = [
-        'id', 'slug', 'name', 'description', 'tool_collation',
+        'id', 'slug', 'name', 'title', 'description', 'tool_collation',
         'inputSchema', 'start_slug', 'user_created', 'date_created',
       ].map(field => ({ field }));
       const OPS_FIELDS = [
@@ -900,7 +905,7 @@ describe('App', () => {
 
     it('returns state:complete when collections, fields, and relation are all in place', async () => {
       const TOOL_FIELDS = [
-        'id', 'slug', 'name', 'description', 'tool_collation',
+        'id', 'slug', 'name', 'title', 'description', 'tool_collation',
         'inputSchema', 'start_slug', 'user_created', 'date_created',
       ].map(field => ({ field }));
       const OPS_FIELDS = [
@@ -968,7 +973,7 @@ describe('App', () => {
 
     it('returns state:in_progress when the M2O relation is absent', async () => {
       const TOOL_FIELDS = [
-        'id', 'slug', 'name', 'description', 'tool_collation',
+        'id', 'slug', 'name', 'title', 'description', 'tool_collation',
         'inputSchema', 'start_slug', 'user_created', 'date_created',
       ].map(field => ({ field }));
       const OPS_FIELDS = [
@@ -1104,7 +1109,7 @@ describe('App', () => {
       let capturedEnv;
       const TOKEN_TOOL = {
         slug: 'read-token',
-        name: 'Read Token',
+        name: 'read-token',
         description: 'Returns the token from $env',
         inputSchema: null,
         start_slug: 'run',

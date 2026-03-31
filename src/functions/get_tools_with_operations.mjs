@@ -2,11 +2,16 @@ import {fetch_cacheable_data} from "./fetch_cachable_data.mjs";
 
 /**
  * Fetch tools from Directus for a specific tool_collation using the caller's bearer token.
+ *
+ * @param {string}      baseUrl         - Base URL of the Directus instance
+ * @param {string}      bearerToken     - Caller's bearer token for Directus authentication
+ * @param {string}      toolCollation   - Value of the tool_collation field to filter by
+ * @param {string|null} [toolName=null] - Optional tool name to narrow the result to a single tool
  */
-export async function fetchToolsForCollation(baseUrl, bearerToken, toolCollation, toolSlug = null) {
+export async function fetchToolsForCollation(baseUrl, bearerToken, toolCollation, toolName = null) {
 
     let cache_config = {
-        key: {toolCollation,toolSlug},
+        key: {toolCollation, toolName},
         duration_ms: 1000 * 60, // cache for 1 minute
     };
 
@@ -14,8 +19,8 @@ export async function fetchToolsForCollation(baseUrl, bearerToken, toolCollation
         const url = new URL('/items/tools', baseUrl);
         url.searchParams.set('fields', '*,operations.*');
         url.searchParams.set('filter[tool_collation][_eq]', toolCollation);
-        if (toolSlug) {
-            url.searchParams.set('filter[slug][_eq]', toolSlug);
+        if (toolName) {
+            url.searchParams.set('filter[name][_eq]', toolName);
         }
 
         const response = await fetch(url.toString(), {

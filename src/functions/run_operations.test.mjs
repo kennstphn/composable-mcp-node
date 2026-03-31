@@ -96,7 +96,8 @@ describe('run_operations', () => {
     ];
 
     const ctx = await run_operations(operations, 'failing-step');
-    assert.equal(ctx['failing-step'].error, true);
+    assert.ok(ctx['failing-step'] instanceof Error);
+    assert.match(ctx['failing-step'].message, /boom/);
     assert.equal(ctx['error-handler'], 'recovered');
     assert.equal(ctx.$last, 'recovered');
   });

@@ -1,12 +1,12 @@
 /**
  * Default tool definitions — served directly from the filesystem at POST /mcp.
  *
- * These seven tools let an authenticated user manage tool definitions inside
+ * These eleven tools let an authenticated user manage tool definitions inside
  * Directus through the MCP interface.  They are NOT stored in Directus; the
  * server loads them from this module and executes them locally.
  *
- * When a default tool is executed, the server injects two keys into the $trigger context
- * that fetch_request operations can use via template interpolation:
+ * When a default tool is executed, the server injects two extra keys into
+ * `$trigger` so fetch_request operations can authenticate with Directus:
  *
  *   • `$trigger.DIRECTUS_BASE_URL` — the server's configured Directus instance URL
  *   • `$trigger.DIRECTUS_TOKEN`    — the caller's bearer token (from the Authorization header)

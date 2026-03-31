@@ -42,8 +42,10 @@ export class App {
 
     this.app.use(spec_implementation);
 
-    this.app.use(skipAuthFor(['/', '/health'])); // injects "token" into req for non-skipped routes
-    this.app.use(accountability(this.DIRECTUS_BASE_URL)); // injects "$accountability" into req for routes with a token
+    // Skip auth for public paths and for the unauthenticated MCP initialize handshake.
+    // All other requests require a Bearer token (injected as req.token).
+    this.app.use(skipAuthFor(['/', '/health', '/initialize']));
+    this.app.use(accountability(this.DIRECTUS_BASE_URL)); // best-effort: enriches req.$accountability
 
 
 
@@ -84,6 +86,11 @@ export class App {
 
     // Initialize — create Directus collections, seed default tools, set up permissions
     this.app.post('/initialize', async (req, res) => {
+
+      // POST /initialize always requires authentication (GET /initialize is public for probing).
+      if (!req.token) {
+        return res.status(401).json({ error: 'Authorization required', state: 'needed' });
+      }
 
       // Check current state first; block early if migration is needed
       let currentState;
@@ -163,7 +170,7 @@ export class App {
             }
             let run_result = await this.run_tool(composedTool, toolArgs, req);
 
-            return res.mcp.tool_call_result(run_result,run_result.$vars.isError);
+            return res.mcp.tool_call_result(run_result.$last, run_result.$vars.isError);
 
           } catch (err) {
               return res.mcp.general_error(err);
@@ -239,6 +246,10 @@ export class App {
       if (method === 'tools/call') {
         const { name, arguments: args } = params || {};
         const tool = tools.find(t =>  t.name === name);
+
+        if (!tool) {
+            return res.mcp.general_error(new InvalidParamsError(`Tool "${name}" not found in collation "${tool_collation}"`));
+        }
 
         try{
             let result = await this.run_tool(tool, args, req);
@@ -360,13 +371,13 @@ export class App {
     });
   }
 
-  async get_tools(token, tool_collation,tool_name){
-      let tools;
-      tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, token, tool_collation);
-
+  async get_tools(token, tool_collation, tool_name){
+      const tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, token, tool_collation);
       const tool = tools.find(t => t.name === tool_name);
       if (!tool) {
-          throw new InvalidParamsError(`Tool "${tool_name}" not found in collation "${tool_collation}"`);
+          const err = new InvalidParamsError(`Tool "${tool_name}" not found in collation "${tool_collation}"`);
+          err.status = 404;
+          throw err;
       }
       return tool;
   }
@@ -385,22 +396,30 @@ export class App {
       return await this.executeFlow(tool, {
           $trigger: inputData,
           $accountability,
-          $env: {DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL}
+          // DIRECTUS_BASE_URL and DIRECTUS_TOKEN are available to all tool scripts
+          // via `data.$env.*`.  DIRECTUS_TOKEN mirrors the caller's bearer token so
+          // that user-defined tool scripts can authenticate with Directus directly.
+          $env: {
+            DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
+            DIRECTUS_TOKEN: token,
+          },
       }, token);
   }
 
   async run_default_tool(tool, inputData, req){
       console.log(`Running default tool "${tool.name}" with input:`, inputData);
-      // we need to inject the directus data from the request to the inputData
-      // so that it can be used in the operations of the default tool, for example, in fetch_request operations.
-      // this is safe because default tools are defined in the filesystem by trusted server code, not user-supplied.
+      // Inject the server's Directus credentials into $trigger so the default tool's
+      // fetch_request operations can reference them via {{$trigger.DIRECTUS_BASE_URL}}
+      // and {{$trigger.DIRECTUS_TOKEN}}.  Default tools are defined in the filesystem
+      // by trusted server code (not user-supplied), so this injection is safe.
         let result =  await this.run_tool(tool, {
             ...inputData,
             DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL,
             DIRECTUS_TOKEN: req.token,
         }, req);
 
-        // remove the DIRECTUS_* from the result.$trigger to avoid leaking them to the client in case the tool returns the input as output
+        // Strip the injected Directus credentials from $trigger so they are not
+        // accidentally exposed to the client if the tool echoes its input back.
         if(result && result.$trigger){
             delete result.$trigger.DIRECTUS_BASE_URL;
             delete result.$trigger.DIRECTUS_TOKEN;
