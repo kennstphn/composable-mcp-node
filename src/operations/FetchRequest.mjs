@@ -42,7 +42,7 @@ export class FetchRequest {
     }
   }
 
-  async run(context) {
+  async run(context, bearerToken) {
     const { url, method = 'GET', headers = {}, body } = this.config;
 
     if (!url) {
@@ -62,6 +62,19 @@ export class FetchRequest {
       method: method.toUpperCase(),
       headers: resolvedHeaders,
     };
+
+    // if the url starts with the $env.DIRECTUS_BASE_URL and the headers are missing authorization, add the bearer token to the headers
+    (() => {
+        const directusBaseUrl = context.$env && context.$env.DIRECTUS_BASE_URL;
+        if ( ! directusBaseUrl) return;
+        if (resolvedUrl.startsWith(directusBaseUrl) && bearerToken) {
+          const hasAuthHeader = Object.keys(fetchOptions.headers)
+            .some(k => k.toLowerCase() === 'authorization');
+          if (!hasAuthHeader) {
+            fetchOptions.headers['Authorization'] = `Bearer ${bearerToken}`;
+          }
+        }
+    })();
 
     if (body !== undefined && !['GET', 'HEAD'].includes(fetchOptions.method)) {
       const resolvedBody = interpolateValue(body, context);
