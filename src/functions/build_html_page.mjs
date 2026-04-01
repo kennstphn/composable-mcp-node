@@ -1,35 +1,46 @@
 import Mustache from 'mustache';
-import { readdirSync, readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { readdirSync, readFileSync, writeFileSync, cpSync, rmSync, mkdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const pagesDir = join(__dirname, '../pages');
-console.log('__dirname:', __dirname);
-console.log('pagesDir:', pagesDir);
+export function build_dist(context) {
+    const pagesDir = join(import.meta.dirname, '../static-ish');
+    const partialsDir = join(import.meta.dirname, '../partials');
+    const dist_dir = join(import.meta.dirname, '../../dist');
 
-let pages = {}; // { 'index': 'Hello {{name}}!', ... }
-
-// Load all .mustache files dynamically
-for (const file of readdirSync(pagesDir, { withFileTypes: true })) {
-    if (file.isFile() && file.name.endsWith('.mustache')) {
-        const name = file.name.replace(/\.mustache$/i,''); // 'index.mustache' → 'index'
-        const filePath = join(pagesDir, file.name);
-
-        // Read as UTF-8 text (synchronous for startup simplicity)
-        pages[name] = readFileSync(filePath, 'utf8');
+    // Load partials (if dir exists)
+    const partials = {};
+    if (existsSync(partialsDir)) {
+        for (const file of readdirSync(partialsDir, { withFileTypes: true })) {
+            if (file.isFile() && file.name.endsWith('.mustache')) {
+                const name = file.name.replace(/\.mustache$/i, '');
+                partials[name] = readFileSync(join(partialsDir, file.name), 'utf8');
+                console.log(`Loaded partial: ${name}`);
+            }
+        }
     }
-}
-console.log('Loaded pages:', Object.keys(pages));
 
+    // Clean/build dist
+    rmSync(dist_dir, { recursive: true, force: true });
+    mkdirSync(dist_dir, { recursive: true });
 
-export function build_html_page(template_slug, context) {
-    const template = pages[template_slug] || `<!-- Template "${template_slug}" not found -->`;
-    // Mustache.render already handles HTML escaping by default.
-    // Use { escape: (text) => text } only if you want raw HTML output.
-    return Mustache.render(template, context);
-}
+    // Build pages/assets
+    for (const file of readdirSync(pagesDir, { withFileTypes: true })) {
+        if (file.isFile()) {
+            const name = file.name;
+            const filePath = join(pagesDir, name);
+            const outputName = name.replace(/\.mustache$/i, '.html');
+            const outputPath = join(dist_dir, outputName);
 
-export function list_pages() {
-    return Object.keys(pages);
+            if (name.endsWith('.mustache')) {
+                const page_data = readFileSync(filePath, 'utf8');
+                // Render w/ context + partials!
+                const rendered_html = Mustache.render(page_data, context, partials);
+                writeFileSync(outputPath, rendered_html, 'utf8');
+                console.log(`Built: ${outputName}`);
+            } else {
+                cpSync(filePath, outputPath);
+                console.log(`Copied: ${name}`);
+            }
+        }
+    }
 }
