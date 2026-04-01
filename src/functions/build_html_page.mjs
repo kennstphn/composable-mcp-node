@@ -5,6 +5,8 @@ import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pagesDir = join(__dirname, '../pages');
+console.log('__dirname:', __dirname);
+console.log('pagesDir:', pagesDir);
 
 let pages = {}; // { 'index': 'Hello {{name}}!', ... }
 
@@ -18,6 +20,7 @@ for (const file of readdirSync(pagesDir, { withFileTypes: true })) {
         pages[name] = readFileSync(filePath, 'utf8');
     }
 }
+console.log('Loaded pages:', Object.keys(pages));
 
 
 export function build_html_page(template_slug, context) {
