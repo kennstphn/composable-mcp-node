@@ -47,8 +47,8 @@ export class App {
     this.app.use(express.urlencoded({ extended: true }));
 
     let {FORCE_HTTPS, TRUST_PROXY} = this.env;
-    if (TRUST_PROXY === 'true') {
-      this.app.set('trust proxy', TRUST_PROXY === 'true' ? true : TRUST_PROXY);
+    if (TRUST_PROXY) {
+      this.app.set('trust proxy', TRUST_PROXY);
     }
 
     if (FORCE_HTTPS === 'true') {
