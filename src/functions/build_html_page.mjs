@@ -19,10 +19,9 @@ for (const file of readdirSync(pagesDir, { withFileTypes: true })) {
     }
 }
 
-const MISSING_TEMPLATE = `<!-- Template not found -->`;
 
 export function build_html_page(template_slug, context) {
-    const template = pages[template_slug] || MISSING_TEMPLATE;
+    const template = pages[template_slug] || `<!-- Template "${template_slug}" not found -->`;
     // Mustache.render already handles HTML escaping by default.
     // Use { escape: (text) => text } only if you want raw HTML output.
     return Mustache.render(template, context);
