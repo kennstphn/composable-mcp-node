@@ -1,16 +1,21 @@
 // middleware/auth.js
+import cookie from 'cookie';
 
 export function extractBearerToken(req) {
     const header = req.headers.authorization;
 
-    if (!header) return null;
+    if (header) {
+        const token = header.replace(/^\s*bearer\s+/i, '').trim();
+        if (token) return token;
+    }
 
-    // More explicit and slightly safer
-    const token = header.replace(/^\s*bearer\s+/i, '').trim();
+    if (!req.headers.cookie) return null;
 
-    return token ||
-        req.headers.cookie?.match(/directus_session_token=([^;]+)/)?.[1]
-        || null;
+    const cookies = cookie.parse(req.headers.cookie);
+
+    return cookies.directus_session_token ||
+        cookies.directus_session ||
+        null;
 }
 
 export const requireAuth = (req, res, next) => {
