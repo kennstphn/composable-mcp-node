@@ -240,44 +240,14 @@ export class App {
     });
   }
 
-  async get_tools(token, tool_collation, tool_name){
-      const tools = await fetchToolsForCollation(this.DIRECTUS_BASE_URL, token, tool_collation);
-      const tool = tools.find(t => t.name === tool_name);
-      if (!tool) {
-          const err = new InvalidParamsError(`Tool "${tool_name}" not found in collation "${tool_collation}"`);
-          err.status = 404;
-          throw err;
-      }
-      return tool;
-  }
-
   async run_tool(tool, inputData,req) {
       let {token,$accountability} = req
-
-      if (tool.inputSchema) {
-          const validate = ajv.compile(tool.inputSchema);
-          if (!validate(inputData)) {
-              const messages = (validate.errors || []).map(e => `${e.instancePath} ${e.message}`.trim()).join('; ');
-              throw new InvalidParamsError(messages);
-          }
-      }
 
       return await this.executeFlow(tool, {
           $trigger: inputData,
           $accountability,
-          $env: this.env,
+          $env: JSON.parse(JSON.stringify(this.env)), // protect the env from being overridden
       }, token);
-  }
-
-  get default_tools(){
-      return {
-          tools: DEFAULT_TOOLS.map(t => ({
-              name: t.name,
-              title: t.title,
-              description: t.description || '',
-              inputSchema: t.inputSchema || { type: 'object', properties: {} },
-          })),
-      };
   }
 
 }
