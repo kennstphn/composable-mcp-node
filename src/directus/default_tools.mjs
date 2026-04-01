@@ -725,6 +725,193 @@ export const EDIT_CALL_TOOL_OPERATION_TOOL = {
     ]
 }
 
+// ─── message_v1_responses ────────────────────────────────────────────────────
+//
+// Drives an OpenAI Responses-API-compatible tool-calling loop.
+// The request accumulator is passed through three run_script stages that chain
+// back on themselves until the model stops returning function_call items.
+
+export const MESSAGE_V1_RESPONSES_TOOL = {
+  name: 'message_v1_responses',
+  title: 'Message v1 Responses',
+  description:
+    'Sends a request to an OpenAI-compatible Responses API endpoint and drives a ' +
+    'tool-calling loop until the model returns a final response.  Each function_call ' +
+    'item returned by the model is dispatched to the MCP tool collation supplied by ' +
+    'the caller; results are appended to the conversation and the model is called again ' +
+    'until no further tool calls are requested.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      request: {
+        type: 'object',
+        description:
+          'Request body sent to the API (e.g. { model, input, tools, … }).  ' +
+          'The "input" (or "messages") array is updated automatically with tool ' +
+          'results during the loop.',
+        properties: {
+          model: { type: 'string', description: 'Model identifier (e.g. gpt-4o)' },
+        },
+        required: ['model'],
+      },
+      endpoint: {
+        type: 'string',
+        description: 'API endpoint URL (e.g. https://api.openai.com/v1/responses)',
+      },
+      token: {
+        type: 'string',
+        description: 'Bearer token used in the Authorization header',
+      },
+      tool_collation: {
+        type: 'string',
+        description:
+          'MCP tool collation to use when dispatching tool calls returned by the model. ' +
+          'Required when the model is expected to make tool calls.',
+      },
+    },
+    required: ['request', 'endpoint', 'token'],
+  },
+  start_slug: 'init',
+  operations: [
+    // ── 1. Seed the request accumulator ─────────────────────────────────────
+    operation('init', 'run_script', {
+      code: [
+        'module.exports = async function(data) {',
+        '  return { request: data.$trigger.request };',
+        '};',
+      ].join('\n'),
+    }, 'call_api'),
+
+    // ── 2. POST the current request to the LLM endpoint ─────────────────────
+    operation('call_api', 'fetch_request', {
+      url: '{{$trigger.endpoint}}',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer {{$trigger.token}}',
+      },
+      // $last is always { request: <object> } – from init on first call,
+      // from append_result on subsequent calls.
+      body: '{{$last.request}}',
+    }, 'extract_calls'),
+
+    // ── 3. Extract tool calls from the response ──────────────────────────────
+    // Throws { done, response } (→ finalize) when there are no function_call items.
+    // Returns { request, tool_calls } (→ prepare_call) when there are.
+    operation('extract_calls', 'run_script', {
+      code: [
+        'module.exports = async function(data) {',
+        '  var response = data.$last;',
+        '  // On the first LLM turn append_result has not run yet; use init.request.',
+        '  // On subsequent turns use the request that append_result produced.',
+        '  var current_request = (data.append_result && data.append_result.request)',
+        '    ? data.append_result.request',
+        '    : data.init.request;',
+        '  var output = response.output || [];',
+        '  var tool_calls = output.filter(function(item) {',
+        '    return item.type === "function_call";',
+        '  });',
+        '  if (tool_calls.length === 0) {',
+        '    throw { done: true, response: response };',
+        '  }',
+        '  // Append the assistant output (including the function_call items) to the',
+        '  // conversation so the model receives its own turn on the next API call.',
+        '  var input_key = "input" in current_request ? "input" : "messages";',
+        '  var updated_input = (current_request[input_key] || []).concat(output);',
+        '  var updated_request = Object.assign({}, current_request);',
+        '  updated_request[input_key] = updated_input;',
+        '  return {',
+        '    request: updated_request,',
+        '    tool_calls: tool_calls.map(function(tc) {',
+        '      return {',
+        '        call_id: tc.call_id,',
+        '        name: tc.name,',
+        '        arguments: (function() {',
+        '          if (typeof tc.arguments !== "string") return tc.arguments || {};',
+        '          try { return JSON.parse(tc.arguments); } catch(e) { return {}; }',
+        '        }()),',
+        '      };',
+        '    }),',
+        '  };',
+        '};',
+      ].join('\n'),
+    }, 'prepare_call', 'finalize'),
+
+    // ── 4. Dequeue the next tool call ────────────────────────────────────────
+    // $last is either extract_calls result (first visit) or the thrown
+    // { request, tool_calls } from append_result (looped visits).
+    operation('prepare_call', 'run_script', {
+      code: [
+        'module.exports = async function(data) {',
+        '  var state = data.$last;',
+        '  var next_call = state.tool_calls[0];',
+        '  var remaining = state.tool_calls.slice(1);',
+        '  return {',
+        '    request: state.request,',
+        '    next_call: next_call,',
+        '    remaining: remaining,',
+        '  };',
+        '};',
+      ].join('\n'),
+    }, 'invoke_tool'),
+
+    // ── 5. Dispatch the current tool call to the MCP tool collation ──────────
+    // context.prepare_call is re-read on every visit so the tool name and
+    // arguments always match the currently dequeued call.
+    operation('invoke_tool', 'call_tool', {
+      tool_collation: '{{$trigger.tool_collation}}',
+      tool_name: '{{prepare_call.next_call.name}}',
+      tool_arguments: '{{prepare_call.next_call.arguments}}',
+      iteration_mode: 'serial',
+    }, 'append_result'),
+
+    // ── 6. Append the tool result and decide what to do next ─────────────────
+    // Throws { request, tool_calls } (→ prepare_call) when more calls remain.
+    // Returns { request } (→ call_api) when all tool calls for this turn are done.
+    operation('append_result', 'run_script', {
+      code: [
+        'module.exports = async function(data) {',
+        '  var tool_result = data.$last;',
+        '  var state = data.prepare_call;',
+        '  // CallTool.trim_output wraps single results as { $last, $vars }.  Unwrap to the',
+        '  // plain value; for array results (parallel iteration) unwrap each element.',
+        '  var raw = tool_result;',
+        '  var result_value = Array.isArray(raw)',
+        '    ? raw.map(function(r) { return r && r.$last !== undefined ? r.$last : r; })',
+        '    : (raw && raw.$last !== undefined ? raw.$last : raw);',
+        '  var tool_output = {',
+        '    type: "function_call_output",',
+        '    call_id: state.next_call.call_id,',
+        '    output: JSON.stringify(result_value),',
+        '  };',
+        '  var input_key = "input" in state.request ? "input" : "messages";',
+        '  var updated_input = (state.request[input_key] || []).concat([tool_output]);',
+        '  var updated_request = Object.assign({}, state.request);',
+        '  updated_request[input_key] = updated_input;',
+        '  if (state.remaining.length > 0) {',
+        '    // More tool calls queued – throw so the reject path loops back to prepare_call.',
+        '    throw { request: updated_request, tool_calls: state.remaining };',
+        '  }',
+        '  // All tool calls for this turn are done – return so call_api gets the updated request.',
+        '  return { request: updated_request };',
+        '};',
+      ].join('\n'),
+    }, 'call_api', 'prepare_call'),
+
+    // ── 7. Return the final model response ───────────────────────────────────
+    // $last is the thrown { done: true, response } object from extract_calls.
+    operation('finalize', 'run_script', {
+      code: [
+        'module.exports = async function(data) {',
+        '  return data.$last && data.$last.response !== undefined',
+        '    ? data.$last.response',
+        '    : data.$last;',
+        '};',
+      ].join('\n'),
+    }),
+  ],
+};
+
 // ─── All default tools ────────────────────────────────────────────────────────
 
 export const DEFAULT_TOOLS = [
@@ -751,4 +938,7 @@ export const DEFAULT_TOOLS = [
     // call_tool operations
     ADD_CALL_TOOL_OPERATION_TOOL,
     EDIT_CALL_TOOL_OPERATION_TOOL,
+
+    // agentic / LLM operations
+    MESSAGE_V1_RESPONSES_TOOL,
 ];

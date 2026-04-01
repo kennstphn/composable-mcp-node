@@ -48,11 +48,11 @@ describe('ScriptOperation', () => {
     await assert.rejects(() => op.run({ $env: {}, $last: null, $vars: {} }), /code.*required/i);
   });
 
-  it('throws a wrapped error when user code throws', async () => {
+  it('throws a wrapped error when user code throws an Error', async () => {
     const op = new ScriptOperation({
       code: 'module.exports = async function(data) { throw new Error("user error"); }',
     });
-    await assert.rejects(() => op.run({ $env: {}, $last: null, $vars: {} }), /Script failed/);
+    await assert.rejects(() => op.run({ $env: {}, $last: null, $vars: {} }), /Error from user function/);
   });
 
   it('returns an empty object when user function returns undefined', async () => {

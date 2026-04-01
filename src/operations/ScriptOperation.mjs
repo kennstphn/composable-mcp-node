@@ -79,7 +79,15 @@ export class ScriptOperation {
       result = await userFunction(data);
 
     }catch (err){
-      throw new Error("Error from user function: " + err.message);
+      // If the thrown value has a string .message property (i.e. it is Error-like),
+      // wrap it with a descriptive prefix so callers see a useful error string.
+      // Otherwise (plain objects, primitives) re-throw the raw value unchanged so
+      // that the run_operations engine can store it in $last and route via the
+      // reject path – enabling throw-as-signal control flow between operations.
+      if (err && typeof err.message === 'string') {
+        throw new Error("Error from user function: " + err.message);
+      }
+      throw err;
     }
 
     // Return whatever the user returned (or empty object)
