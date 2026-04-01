@@ -42,6 +42,21 @@ export class App {
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
 
+    let {FORCE_HTTPS, TRUST_PROXY} = this.env;
+    if (TRUST_PROXY === 'true') {
+      this.app.set('trust proxy', true);
+    }
+
+    if (FORCE_HTTPS === 'true') {
+      this.app.use((req, res, next) => {
+        if (req.secure) {
+          return next();
+        }
+        return res.redirect(301, `https://${req.headers.host}${req.url}`);
+      });
+    }
+
+
     // provides "mcp" property on req with helper methods for generating MCP responses,
     // supporting the MCP protocol structure for /mcp routes
     this.app.use(spec_implementation);
@@ -53,19 +68,18 @@ export class App {
     // Accountability middleware to enrich req with $accountability info based on the token's associated Directus user and roles.
     this.app.use(accountability(this.DIRECTUS_BASE_URL)); // best-effort: enriches req.$accountability
 
-
-
   }
 
   setupRoutes() {
+    let prefix = this.env.ROUTES_PREFIX || '';
     // Landing page
-    this.app.get('/', (req, res) => {
+    this.app.get(prefix + '/', (req, res) => {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.send(buildLandingPage(this.DIRECTUS_BASE_URL));
     });
 
     // Initialization state check
-    this.app.get('/initialize', async (req, res) => {
+    this.app.get(prefix + '/initialize', async (req, res) => {
 
       try {
         const result = await checkInitializationState(this.DIRECTUS_BASE_URL, req.token);
@@ -82,7 +96,7 @@ export class App {
     });
 
     // Health check
-    this.app.get('/health', (req, res) => {
+    this.app.get(prefix + '/health', (req, res) => {
       res.json({
         status: 'ok',
         time: new Date().toISOString(),
@@ -91,7 +105,7 @@ export class App {
     });
 
     // Initialize — create Directus collections, seed default tools, set up permissions
-    this.app.post('/initialize', async (req, res) => {
+    this.app.post(prefix + '/initialize', async (req, res) => {
 
       // POST /initialize always requires authentication (GET /initialize is public for probing).
       if (!req.token) {
@@ -130,8 +144,8 @@ export class App {
     });
 
     let mcpHandlerBound = this.mcp_handler.bind(this);
-    this.app.post('/mcp/:tool_collation', mcpHandlerBound);
-    this.app.post('/mcp', mcpHandlerBound);
+    this.app.post(prefix + '/mcp/:tool_collation', mcpHandlerBound);
+    this.app.post(prefix + '/mcp', mcpHandlerBound);
 
 
   }
