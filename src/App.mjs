@@ -48,7 +48,7 @@ export class App {
 
     let {FORCE_HTTPS, TRUST_PROXY} = this.env;
     if (TRUST_PROXY === 'true') {
-      this.app.set('trust proxy', TRUST_PROXY);
+      this.app.set('trust proxy', TRUST_PROXY === 'true' ? true : TRUST_PROXY);
     }
 
     if (FORCE_HTTPS === 'true') {
