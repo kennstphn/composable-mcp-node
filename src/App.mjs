@@ -129,81 +129,9 @@ export class App {
       }
     });
 
-      this.app.post('/mcp/:tool_collation?', async (req, res) => {
-          const { method, params } = req.body || {};
-          const { tool_collation } = req.params;
-
-          if (method === 'initialize') {
-              return res.mcp.general_result({
-                  protocolVersion: '2024-11-05',
-                  capabilities: { tools: { list: true, call: true } },
-                  serverInfo: { name: 'composable-mcp', version: '0.1.0' },
-              });
-          }
-
-          if (method === 'notifications/initialized') {
-              return res.mcp.empty_response(204);
-          }
-
-          if (method === 'ping') {
-              return res.mcp.general_result({});
-          }
-
-          // Resolve tools — either from Directus or built-in defaults
-          let tools;
-          try {
-              tools = tool_collation
-                  ? await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation)
-                  : DEFAULT_TOOLS;
-          } catch (err) {
-              return res.mcp.general_error(err);
-          }
-
-          if (method === 'tools/list') {
-              return res.mcp.general_result({
-                  tools: tools.map(t => ({
-                      name: t.name,
-                      title: t.title,
-                      description: t.description || '',
-                      inputSchema: t.inputSchema || { type: 'object', properties: {} },
-                  })),
-              });
-          }
-
-          if (method === 'tools/call') {
-              const { name, arguments: args } = params || {};
-              const tool = tools.find(t => t.name === name);
-
-              if (!tool) {
-                  return res.mcp.general_error(
-                      new InvalidParamsError(
-                          tool_collation
-                              ? `Tool "${name}" not found in collation "${tool_collation}"`
-                              : `Tool "${name}" not found`
-                      )
-                  );
-              }
-
-              if (tool.inputSchema) {
-                  const validate = ajv.compile(tool.inputSchema);
-                  if (!validate(args || {})) {
-                      const messages = (validate.errors || [])
-                          .map(e => `${e.instancePath} ${e.message}`.trim())
-                          .join('; ');
-                      return res.mcp.general_error(new InvalidParamsError(messages));
-                  }
-              }
-
-              try {
-                  const result = await this.run_tool(tool, args || {}, req);
-                  return res.mcp.tool_call_result(result.$last, result.$vars.isError);
-              } catch (err) {
-                  return res.mcp.general_error(err);
-              }
-          }
-
-          return res.mcp.general_error(new MethodNotFoundError(`Method not found: ${method}`));
-      });
+    let mcpHandlerBound = this.mcp_handler.bind(this);
+    this.app.post('/mcp/:tool_collation', mcpHandlerBound);
+    this.app.post('/mcp', mcpHandlerBound);
 
 
   }
@@ -248,6 +176,82 @@ export class App {
           $accountability,
           $env: JSON.parse(JSON.stringify(this.env)), // protect the env from being overridden
       }, token);
+  }
+
+  async mcp_handler(req, res) {
+      const { method, params } = req.body || {};
+      const { tool_collation } = req.params;
+
+      if (method === 'initialize') {
+          return res.mcp.general_result({
+              protocolVersion: '2024-11-05',
+              capabilities: { tools: { list: true, call: true } },
+              serverInfo: { name: 'composable-mcp', version: '0.1.0' },
+          });
+      }
+
+      if (method === 'notifications/initialized') {
+          return res.mcp.empty_response(204);
+      }
+
+      if (method === 'ping') {
+          return res.mcp.general_result({});
+      }
+
+      // Resolve tools — either from Directus or built-in defaults
+      let tools;
+      try {
+          tools = tool_collation
+              ? await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation)
+              : DEFAULT_TOOLS;
+      } catch (err) {
+          return res.mcp.general_error(err);
+      }
+
+      if (method === 'tools/list') {
+          return res.mcp.general_result({
+              tools: tools.map(t => ({
+                  name: t.name,
+                  title: t.title,
+                  description: t.description || '',
+                  inputSchema: t.inputSchema || { type: 'object', properties: {} },
+              })),
+          });
+      }
+
+      if (method === 'tools/call') {
+          const { name, arguments: args } = params || {};
+          const tool = tools.find(t => t.name === name);
+
+          if (!tool) {
+              return res.mcp.general_error(
+                  new InvalidParamsError(
+                      tool_collation
+                          ? `Tool "${name}" not found in collation "${tool_collation}"`
+                          : `Tool "${name}" not found`
+                  )
+              );
+          }
+
+          if (tool.inputSchema) {
+              const validate = ajv.compile(tool.inputSchema);
+              if (!validate(args || {})) {
+                  const messages = (validate.errors || [])
+                      .map(e => `${e.instancePath} ${e.message}`.trim())
+                      .join('; ');
+                  return res.mcp.general_error(new InvalidParamsError(messages));
+              }
+          }
+
+          try {
+              const result = await this.run_tool(tool, args || {}, req);
+              return res.mcp.tool_call_result(result.$last, result.$vars.isError);
+          } catch (err) {
+              return res.mcp.general_error(err);
+          }
+      }
+
+      return res.mcp.general_error(new MethodNotFoundError(`Method not found: ${method}`));
   }
 
 }
