@@ -14,6 +14,7 @@ import {skipAuthFor} from "./middleware/skipAuth.mjs";
 import {accountability} from "./middleware/accountability.mjs";
 import {spec_implementation} from "./middleware/spec_implementation.mjs";
 import {join} from 'path';
+import {build_dist} from "./functions/build_dist.mjs";
 
 
 export class App {
@@ -33,6 +34,8 @@ export class App {
     }
     this.env = env;
     this.env.toString = () =>  JSON.stringify(this.env);
+
+    build_dist(this.env)
 
     this.app = express();
     this.setupMiddleware();
