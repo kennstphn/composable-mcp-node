@@ -532,12 +532,19 @@ describe('MESSAGE_V1_RESPONSES_TOOL', () => {
     );
   });
 
-  it('inputSchema has request, endpoint, token, and tool_collation properties', () => {
+  it('inputSchema has request, endpoint, token, and tools properties', () => {
     const props = Object.keys(MESSAGE_V1_RESPONSES_TOOL.inputSchema.properties);
     assert.ok(props.includes('request'));
     assert.ok(props.includes('endpoint'));
     assert.ok(props.includes('token'));
-    assert.ok(props.includes('tool_collation'));
+    assert.ok(props.includes('tools'));
+    assert.ok(!props.includes('tool_collation'), 'tool_collation has been replaced by tools array');
+  });
+
+  it('tools property is an array of objects with name and tool_collation', () => {
+    const toolsProp = MESSAGE_V1_RESPONSES_TOOL.inputSchema.properties.tools;
+    assert.equal(toolsProp.type, 'array');
+    assert.deepEqual(toolsProp.items.required, ['name', 'tool_collation']);
   });
 
   it('request property requires model', () => {
@@ -551,20 +558,19 @@ describe('MESSAGE_V1_RESPONSES_TOOL', () => {
     assert.equal(MESSAGE_V1_RESPONSES_TOOL.start_slug, 'init');
   });
 
-  it('has seven operations in the correct order', () => {
+  it('has six operations in the correct order', () => {
     const slugs = MESSAGE_V1_RESPONSES_TOOL.operations.map(o => o.slug);
-    assert.deepEqual(slugs, ['init', 'call_api', 'extract_calls', 'prepare_call', 'invoke_tool', 'append_result', 'finalize']);
+    assert.deepEqual(slugs, ['init', 'call_api', 'extract_calls', 'invoke_tools', 'append_results', 'finalize']);
   });
 
   it('operations have the correct types', () => {
     const ops = MESSAGE_V1_RESPONSES_TOOL.operations;
-    assert.equal(ops.find(o => o.slug === 'init').type,          'run_script');
-    assert.equal(ops.find(o => o.slug === 'call_api').type,      'fetch_request');
-    assert.equal(ops.find(o => o.slug === 'extract_calls').type, 'run_script');
-    assert.equal(ops.find(o => o.slug === 'prepare_call').type,  'run_script');
-    assert.equal(ops.find(o => o.slug === 'invoke_tool').type,   'call_tool');
-    assert.equal(ops.find(o => o.slug === 'append_result').type, 'run_script');
-    assert.equal(ops.find(o => o.slug === 'finalize').type,      'run_script');
+    assert.equal(ops.find(o => o.slug === 'init').type,           'run_script');
+    assert.equal(ops.find(o => o.slug === 'call_api').type,       'fetch_request');
+    assert.equal(ops.find(o => o.slug === 'extract_calls').type,  'run_script');
+    assert.equal(ops.find(o => o.slug === 'invoke_tools').type,   'call_tool');
+    assert.equal(ops.find(o => o.slug === 'append_results').type, 'run_script');
+    assert.equal(ops.find(o => o.slug === 'finalize').type,       'run_script');
   });
 
   it('call_api uses $trigger.endpoint and $trigger.token, not $env', () => {
@@ -580,25 +586,24 @@ describe('MESSAGE_V1_RESPONSES_TOOL', () => {
     assert.equal(callApi.config.body, '{{$last.request}}');
   });
 
-  it('invoke_tool interpolates tool_collation, tool_name, and tool_arguments from trigger and context', () => {
-    const invokeOp = MESSAGE_V1_RESPONSES_TOOL.operations.find(o => o.slug === 'invoke_tool');
-    assert.equal(invokeOp.config.tool_collation, '{{$trigger.tool_collation}}');
-    assert.equal(invokeOp.config.tool_name,      '{{prepare_call.next_call.name}}');
-    assert.equal(invokeOp.config.tool_arguments, '{{prepare_call.next_call.arguments}}');
+  it('invoke_tools uses tool_calls from extract_calls in parallel mode', () => {
+    const invokeOp = MESSAGE_V1_RESPONSES_TOOL.operations.find(o => o.slug === 'invoke_tools');
+    assert.equal(invokeOp.config.tool_calls, '{{extract_calls.tool_calls}}');
+    assert.equal(invokeOp.config.iteration_mode, 'parallel');
+    assert.ok(!invokeOp.config.tool_collation, 'should not have a single tool_collation');
+    assert.ok(!invokeOp.config.tool_name,      'should not have a single tool_name');
   });
 
   it('resolve/reject chain routes correctly', () => {
     const ops = MESSAGE_V1_RESPONSES_TOOL.operations;
     const bySlug = Object.fromEntries(ops.map(o => [o.slug, o]));
-    assert.equal(bySlug.init.resolve,          'call_api');
-    assert.equal(bySlug.call_api.resolve,      'extract_calls');
-    assert.equal(bySlug.extract_calls.resolve, 'prepare_call');
-    assert.equal(bySlug.extract_calls.reject,  'finalize');
-    assert.equal(bySlug.prepare_call.resolve,  'invoke_tool');
-    assert.equal(bySlug.invoke_tool.resolve,   'append_result');
-    assert.equal(bySlug.append_result.resolve, 'call_api');
-    assert.equal(bySlug.append_result.reject,  'prepare_call');
-    assert.equal(bySlug.finalize.resolve,       null);
+    assert.equal(bySlug.init.resolve,             'call_api');
+    assert.equal(bySlug.call_api.resolve,         'extract_calls');
+    assert.equal(bySlug.extract_calls.resolve,    'invoke_tools');
+    assert.equal(bySlug.extract_calls.reject,     'finalize');
+    assert.equal(bySlug.invoke_tools.resolve,     'append_results');
+    assert.equal(bySlug.append_results.resolve,   'call_api');
+    assert.equal(bySlug.finalize.resolve,          null);
   });
 
   // ── embedded script tests ────────────────────────────────────────────────
@@ -610,7 +615,7 @@ describe('MESSAGE_V1_RESPONSES_TOOL', () => {
     assert.deepEqual(result, { request: req });
   });
 
-  it('extract_calls returns tool_calls and updated request when response has function_call items', async () => {
+  it('extract_calls returns tool_calls with routing info and updated request when response has function_call items', async () => {
     const extractOp = MESSAGE_V1_RESPONSES_TOOL.operations.find(o => o.slug === 'extract_calls');
     const init_request = { model: 'gpt-4o', input: [{ role: 'user', content: 'hi' }] };
     const response = {
@@ -620,14 +625,54 @@ describe('MESSAGE_V1_RESPONSES_TOOL', () => {
     };
     const result = await runEmbeddedScript(extractOp, {
       $last: response,
+      $trigger: { tools: [{ name: 'search', tool_collation: 'my-col' }] },
       init: { request: init_request },
     });
     assert.equal(result.tool_calls.length, 1);
     assert.equal(result.tool_calls[0].call_id, 'c1');
-    assert.equal(result.tool_calls[0].name, 'search');
-    assert.deepEqual(result.tool_calls[0].arguments, { q: 'test' });
+    assert.equal(result.tool_calls[0].tool_name, 'search');
+    assert.equal(result.tool_calls[0].tool_collation, 'my-col');
+    assert.deepEqual(result.tool_calls[0].tool_arguments, { q: 'test' });
     // Updated request should include the assistant output
     assert.equal(result.request.input.length, 2);
+  });
+
+  it('extract_calls attaches tool_collation from multiple collations', async () => {
+    const extractOp = MESSAGE_V1_RESPONSES_TOOL.operations.find(o => o.slug === 'extract_calls');
+    const init_request = { model: 'gpt-4o', input: [] };
+    const response = {
+      output: [
+        { type: 'function_call', call_id: 'c1', name: 'search', arguments: '{}' },
+        { type: 'function_call', call_id: 'c2', name: 'lookup', arguments: '{}' },
+      ],
+    };
+    const result = await runEmbeddedScript(extractOp, {
+      $last: response,
+      $trigger: {
+        tools: [
+          { name: 'search', tool_collation: 'col-a' },
+          { name: 'lookup', tool_collation: 'col-b' },
+        ],
+      },
+      init: { request: init_request },
+    });
+    assert.equal(result.tool_calls[0].tool_collation, 'col-a');
+    assert.equal(result.tool_calls[1].tool_collation, 'col-b');
+  });
+
+  it('extract_calls throws when the model calls a tool not present in the supplied tools list', async () => {
+    const extractOp = MESSAGE_V1_RESPONSES_TOOL.operations.find(o => o.slug === 'extract_calls');
+    const response = {
+      output: [{ type: 'function_call', call_id: 'c1', name: 'unknown_tool', arguments: '{}' }],
+    };
+    await assert.rejects(
+      () => runEmbeddedScript(extractOp, {
+        $last: response,
+        $trigger: { tools: [{ name: 'search', tool_collation: 'col' }] },
+        init: { request: { model: 'gpt-4o', input: [] } },
+      }),
+      /unknown_tool.*not present/i,
+    );
   });
 
   it('extract_calls throws { done, response } when there are no function_call items', async () => {
@@ -635,13 +680,17 @@ describe('MESSAGE_V1_RESPONSES_TOOL', () => {
     const init_request = { model: 'gpt-4o', input: [] };
     const response = { output: [{ type: 'message', content: 'done' }] };
     const thrown = await assert.rejects(
-      () => runEmbeddedScript(extractOp, { $last: response, init: { request: init_request } }),
+      () => runEmbeddedScript(extractOp, {
+        $last: response,
+        $trigger: { tools: [] },
+        init: { request: init_request },
+      }),
     );
     // ScriptOperation re-throws plain objects unchanged so the done flag is preserved.
     assert.ok(thrown == null || thrown.done === true || JSON.stringify(thrown ?? {}).includes('"done":true'));
   });
 
-  it('extract_calls uses append_result.request on subsequent turns', async () => {
+  it('extract_calls uses append_results.request on subsequent turns', async () => {
     const extractOp = MESSAGE_V1_RESPONSES_TOOL.operations.find(o => o.slug === 'extract_calls');
     const updated_request = { model: 'gpt-4o', input: [{ role: 'user', content: 'hi' }, { role: 'tool', content: 'result' }] };
     const response = {
@@ -651,61 +700,38 @@ describe('MESSAGE_V1_RESPONSES_TOOL', () => {
     };
     const result = await runEmbeddedScript(extractOp, {
       $last: response,
+      $trigger: { tools: [{ name: 'lookup', tool_collation: 'col' }] },
       init: { request: { model: 'gpt-4o', input: [{ role: 'user', content: 'hi' }] } },
-      append_result: { request: updated_request },
+      append_results: { request: updated_request },
     });
     // Should be based on updated_request, not init.request
     assert.equal(result.request.input.length, 3); // updated 2 + assistant output 1
   });
 
-  it('prepare_call dequeues the first tool call and sets remaining', async () => {
-    const prepareOp = MESSAGE_V1_RESPONSES_TOOL.operations.find(o => o.slug === 'prepare_call');
-    const state = {
-      request: { model: 'gpt-4o', input: [] },
-      tool_calls: [
-        { call_id: 'c1', name: 'search', arguments: { q: 'a' } },
-        { call_id: 'c2', name: 'lookup', arguments: { id: 1 } },
-      ],
-    };
-    const result = await runEmbeddedScript(prepareOp, { $last: state });
-    assert.deepEqual(result.next_call, { call_id: 'c1', name: 'search', arguments: { q: 'a' } });
-    assert.equal(result.remaining.length, 1);
-    assert.equal(result.remaining[0].call_id, 'c2');
-  });
-
-  it('append_result appends tool output and returns { request } when no remaining calls', async () => {
-    const appendOp = MESSAGE_V1_RESPONSES_TOOL.operations.find(o => o.slug === 'append_result');
-    const state = {
+  it('append_results appends all tool outputs and returns { request }', async () => {
+    const appendOp = MESSAGE_V1_RESPONSES_TOOL.operations.find(o => o.slug === 'append_results');
+    const tool_calls = [
+      { call_id: 'c1', tool_name: 'search', tool_collation: 'col', tool_arguments: {} },
+      { call_id: 'c2', tool_name: 'lookup', tool_collation: 'col', tool_arguments: {} },
+    ];
+    const extract_calls = {
       request: { model: 'gpt-4o', input: [{ role: 'user', content: 'hi' }] },
-      next_call: { call_id: 'c1', name: 'search' },
-      remaining: [],
+      tool_calls,
     };
-    // Simulate a CallTool trim_output result: { $last: 'search result', $vars: { isError: false } }
-    const result = await runEmbeddedScript(appendOp, {
-      $last: { $last: 'search result', $vars: { isError: false } },
-      prepare_call: state,
+    // Simulate array of CallTool trim_output results
+    const results = await runEmbeddedScript(appendOp, {
+      $last: [
+        { $last: 'search result', $vars: { isError: false } },
+        { $last: 'lookup result', $vars: { isError: false } },
+      ],
+      extract_calls,
     });
-    assert.deepEqual(Object.keys(result), ['request']);
-    const lastInput = result.request.input[result.request.input.length - 1];
-    assert.equal(lastInput.type, 'function_call_output');
-    assert.equal(lastInput.call_id, 'c1');
-  });
-
-  it('append_result throws { request, tool_calls } when remaining calls exist', async () => {
-    const appendOp = MESSAGE_V1_RESPONSES_TOOL.operations.find(o => o.slug === 'append_result');
-    const state = {
-      request: { model: 'gpt-4o', input: [] },
-      next_call: { call_id: 'c1', name: 'search' },
-      remaining: [{ call_id: 'c2', name: 'lookup', arguments: {} }],
-    };
-    const thrown = await assert.rejects(
-      () => runEmbeddedScript(appendOp, {
-        $last: { $last: 'ok', $vars: { isError: false } },
-        prepare_call: state,
-      }),
-    );
-    // ScriptOperation re-throws plain objects unchanged so the tool_calls array is preserved.
-    assert.ok(thrown == null || (thrown.tool_calls && thrown.tool_calls.length === 1) || JSON.stringify(thrown ?? {}).includes('"tool_calls"'));
+    assert.deepEqual(Object.keys(results), ['request']);
+    const input = results.request.input;
+    assert.equal(input[input.length - 2].type, 'function_call_output');
+    assert.equal(input[input.length - 2].call_id, 'c1');
+    assert.equal(input[input.length - 1].type, 'function_call_output');
+    assert.equal(input[input.length - 1].call_id, 'c2');
   });
 
   it('finalize returns response from the thrown done object', async () => {

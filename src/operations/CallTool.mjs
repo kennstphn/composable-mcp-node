@@ -46,30 +46,76 @@ export class CallTool {
     if (!this.run_operations) throw new Error('CallTool: run_operations not injected');
     if (!this.get_fresh_vars)  throw new Error('CallTool: get_fresh_vars not injected');
 
-    let { tool_collation, tool_name, tool_arguments,iteration_mode } = this.config;
+    let { tool_collation, tool_name, tool_arguments, iteration_mode, tool_calls } = this.config;
 
     // dependency injection of run_operations and get_fresh_vars from the parent flow,
     // to allow the CallTool to execute the sub-tool's operations and to create a fresh $vars object for the sub-context
-    let {run_operations,get_fresh_vars} = this;
-
-    if (!tool_collation) {
-      throw new Error("CallTool: 'tool_collation' property is required in config");
-    }
-    if (!tool_name) {
-      throw new Error("CallTool: 'tool_name' property is required in config");
-    }
-    if (! iteration_mode){
-        iteration_mode = 'serial';
-    }
-    if(! tool_arguments){
-        tool_arguments = {};
-    }
+    let {run_operations, get_fresh_vars} = this;
 
     const baseUrl = context?.$env?.DIRECTUS_BASE_URL;
 
     if (!baseUrl) {
       throw new Error("CallTool: DIRECTUS_BASE_URL is not available in context.$env");
     }
+
+    // Build a sub-context for a given tool input, passing through $accountability and $env from the parent
+    const make_context = (input) => ({
+      $trigger: input,
+      $vars: get_fresh_vars(),
+      $accountability: context.$accountability,
+      $env: context.$env,
+    });
+
+    // Helper: resolve a single tool by collation+name, parse its inputSchema, and run its flow
+    const invoke_one = async (tc, tn, ta) => {
+      if (!tc) throw new Error("CallTool: 'tool_collation' is required for each tool call");
+      if (!tn) throw new Error("CallTool: 'tool_name' is required for each tool call");
+      const data = await fetchToolsForCollation(baseUrl, bearerToken, tc, tn);
+      const tools_list = data || [];
+      for (const t of tools_list) {
+        if (t.inputSchema && typeof t.inputSchema === 'string') {
+          try { t.inputSchema = JSON.parse(t.inputSchema); } catch (e) { t.inputSchema = { type: 'object', properties: {} }; }
+        }
+      }
+      const tool = tools_list.find(t => t.name === tn);
+      if (!tool) throw new Error(`CallTool: tool "${tn}" not found in collation "${tc}"`);
+      const subContext = await run_operations(tool.operations, tool.start_slug, make_context(ta || {}), bearerToken);
+      if (subContext.$vars.isError) throw this.trim_output(subContext);
+      return this.trim_output(subContext);
+    };
+
+    // ── New mode: tool_calls array with per-item routing ──────────────────────
+    // Config: { tool_calls: [{tool_collation, tool_name, tool_arguments}, ...], iteration_mode }
+    // Each item in the array is dispatched to its own collation independently.
+    if (tool_calls !== undefined) {
+      if (!iteration_mode) iteration_mode = 'parallel';
+      const resolved = interpolateValue(tool_calls, context);
+      if (!Array.isArray(resolved)) throw new Error('CallTool: tool_calls must resolve to an array');
+      if (resolved.length === 0) return [];
+
+      let results;
+      if (iteration_mode === 'parallel') {
+        results = await Promise.all(resolved.map(item => invoke_one(item.tool_collation, item.tool_name, item.tool_arguments)));
+      } else {
+        results = [];
+        for (const item of resolved) {
+          results.push(await invoke_one(item.tool_collation, item.tool_name, item.tool_arguments));
+        }
+      }
+      // only throw when ALL calls fail
+      if (results.every(r => r.$vars && r.$vars.isError)) throw results;
+      return results;
+    }
+
+    // ── Existing mode: single tool_collation + tool_name ─────────────────────
+    if (!tool_collation) {
+      throw new Error("CallTool: 'tool_collation' property is required in config");
+    }
+    if (!tool_name) {
+      throw new Error("CallTool: 'tool_name' property is required in config");
+    }
+    if (!iteration_mode) iteration_mode = 'serial';
+    if (!tool_arguments) tool_arguments = {};
 
     // Interpolate config values against the current context, to allow dynamic resolution of the target tool and
     // arguments based on the calling flow's state
@@ -101,21 +147,9 @@ export class CallTool {
       throw new Error(`CallTool: tool "${tool_name}" not found in collation "${tool_collation}"`);
     }
 
-
-    // - build the sub-context with:
-    //   - $trigger seeded from the resolved input (after interpolation)
-    //   - $accountability and $env passed through unchanged from the parent context
-    let make_context = (input) => ({
-        $trigger: input,
-        $vars: get_fresh_vars(),
-        $accountability: context.$accountability,
-        $env: context.$env,
-    });
-
-
     let subContext;
     // the simplest use case is that the subContext is not an array...
-    if ( ! Array.isArray(resolvedInput)) {
+    if (!Array.isArray(resolvedInput)) {
         // Execute the sub-tool's flow,
         // - Pass bearerToken through explicitly so that injection without exposure still works
         subContext = await run_operations(tool.operations, tool.start_slug, make_context(resolvedInput), bearerToken);
@@ -127,19 +161,18 @@ export class CallTool {
         }
 
         return this.trim_output(subContext);
-    }else{
+    } else {
       let results;
-      if(iteration_mode === 'parallel'){
-        results = await this.invoke_array_parallel(tool, resolvedInput.map( input => make_context(input)), bearerToken);
-      }else{
-        results = await this.invoke_array_serial(tool, resolvedInput.map( input => make_context(input)), bearerToken);
+      if (iteration_mode === 'parallel') {
+        results = await this.invoke_array_parallel(tool, resolvedInput.map(input => make_context(input)), bearerToken);
+      } else {
+        results = await this.invoke_array_serial(tool, resolvedInput.map(input => make_context(input)), bearerToken);
       }
       // only throw when ALL iterations fail.
-      if(results.every(r => r.$vars.isError)){
+      if (results.every(r => r.$vars.isError)) {
           throw results;
       }
       return results;
-
     }
 
   }
