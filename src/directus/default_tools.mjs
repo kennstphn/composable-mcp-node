@@ -12,31 +12,43 @@ module.exports = async function(data) {
 }`
 
 function operation(slug,type,config,resolve=null,reject=null) {
-    return {
-        slug,
-        type,
-        config,
-        resolve,
-        reject
-    }
+  return {
+    slug,
+    type,
+    config,
+    resolve,
+    reject
+  }
+}
+
+const SINGLE_INVOCATION_SCHEMA = {
+  type: 'object',
+  description: 'The tool call to be run by this operation. NOTE: These values are interpolated against the ' +
+      'parent tool\'s execution context at runtime, so you can reference any prior operation or input value ' +
+      'in the tool using {{template}} syntax. For complex objects, build the object in a preceding run_script ' +
+      'operation and reference it here via {{ $last }} or {{ a_previous_slug.some_prop }}.',
+  properties:{
+    tool_collation: { type: 'string', description: 'The collation (namespace) the invoked tool belongs to' },
+    tool_name:      { type: 'string', description: 'The name of the tool to invoke' },
+    arguments:      { type: 'object', description: 'Input arguments to pass to the tool. send an empty object to omit arguments.' },
+  },
+  required:['tool_collation', 'tool_name','arguments']
 }
 
 const INVOCATION_SCHEMA = {
   type: 'object',
-      description: 'The tool call to be run by this operation. NOTE: These values are interpolated against the ' +
-  'parent tool\'s execution context at runtime, so you can reference any prior operation or input value ' +
-  'in the tool using {{template}} syntax. For complex objects, build the object in a preceding run_script ' +
-  'operation and reference it here via {{ $last }} or {{ a_previous_slug.some_prop }}.',
-      properties:{
-    tool_collation: { type: 'string', description: 'The collation (namespace) the invoked tool belongs to' },
-    tool_name:      { type: 'string', description: 'The name of the tool to invoke' },
+  description: 'The tool call(s) to be run by this operation. NOTE: The values are interpolated against the ' +
+      'parent tool\'s execution context at runtime, so you can reference any prior operation or input value ' +
+      'in the tool using {{template}} syntax. For complex objects, build the object in a preceding run_script ' +
+      'operation and reference it here via {{ $last }} or {{ a_previous_slug.some_prop }}.',
+  properties:{
     iteration_mode: { type: 'string', enum: ['serial', 'parallel'], description: 'Whether to invoke the tool calls in series or in parallel when given an array as input (default: serial)' },
-    tool_arguments: { oneOf: [
-      { type: 'object' },
-      { type: 'array', items: { type: 'object' } }
-    ], description: 'Input arguments to pass to the tool. Can be an object or an array of objects for multiple invocations.' },
+    invocation: { oneOf: [
+        SINGLE_INVOCATION_SCHEMA,
+        { type: 'array', items: SINGLE_INVOCATION_SCHEMA }
+      ], description: 'Can be an object or an array of objects for multiple invocations.' },
   },
-  required:['tool_collation', 'tool_name']
+  required:[ 'invocation']
 }
 
 /**
@@ -261,7 +273,7 @@ export const EDIT_TOOL_TOOL = {
       type: 'run_script',
       config: {
         code: [
-`
+          `
 module.exports = async function(data) {
     const patch = {};
     for(let field of ["name", "title", "description", "tool_collation", "start_slug", "inputSchema"]) {
@@ -512,13 +524,13 @@ export const TEST_COMPOSED_TOOL_TOOL = {
   start_slug: 'run',
   operations: [
     {
-        slug: 'call_tool',
-        type: 'call_tool',
-        config: {
-            tool_collation: '{{$trigger.tool_collation}}',
-            tool_slug: '{{$trigger.tool_name}}',
-            tool_arguments: '{{$trigger.arguments}}',
-        }
+      slug: 'call_tool',
+      type: 'call_tool',
+      config: {
+        tool_collation: '{{$trigger.tool_collation}}',
+        tool_slug: '{{$trigger.tool_name}}',
+        tool_arguments: '{{$trigger.arguments}}',
+      }
     }
   ],
 };
@@ -571,122 +583,128 @@ export const DELETE_COMPOSED_TOOL_TOOL = {
 };
 
 export const DELETE_OPERATION_TOOL ={
-    name: 'delete_operation',
-    title: 'Delete Operation Step',
-    description: 'Permanently deletes an operation step from a composed tool. ',
-    inputSchema: {
-        type: 'object',
-        properties: {
-            operation_id: { type: 'integer', description: 'The numeric ID of the operation to delete' },
-            tool:{
-                type:'object',
-                description:'The parent tool of the operation, used for an additional safety check to prevent deleting the wrong operation when given a wrong ID.',
-                properties:{
-                    name: { type: 'string', description: 'The name of the parent tool' },
-                    tool_collation: { type: 'string', description: 'The collation of the parent tool' }
-                },
-                required:['name','tool_collation']
-            }
-         },
-        required: ['operation_id', 'tool'],
+  name: 'delete_operation',
+  title: 'Delete Operation Step',
+  description: 'Permanently deletes an operation step from a composed tool. ',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      operation_id: { type: 'integer', description: 'The numeric ID of the operation to delete' },
+      tool:{
+        type:'object',
+        description:'The parent tool of the operation, used for an additional safety check to prevent deleting the wrong operation when given a wrong ID.',
+        properties:{
+          name: { type: 'string', description: 'The name of the parent tool' },
+          tool_collation: { type: 'string', description: 'The collation of the parent tool' }
+        },
+        required:['name','tool_collation']
+      }
     },
-    start_slug: 'init',
+    required: ['operation_id', 'tool'],
+  },
+  start_slug: 'init',
   operations:[
     // first, get the operation to check if it exists, and to make sure that it's parent tool is the one we expect
     // (avoid deleting the wrong operation when given a wrong ID)
-      operation('fetch_operation','fetch_request',{
-        url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}?fields=tool.name,tool.tool_collation',
-      },'check_tool',null),
+    operation('fetch_operation','fetch_request',{
+      url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}?fields=tool.name,tool.tool_collation',
+    },'check_tool',null),
 
-      // check that the operation's parent tool matches the expected tool from the input
-        operation('check_tool','run_script',{
-          code:`module.exports = async function(data) {
+    // check that the operation's parent tool matches the expected tool from the input
+    operation('check_tool','run_script',{
+      code:`module.exports = async function(data) {
             let {name,tool_collation}       = data.fetch_operation?.data?.tool   || {};
             if(name !== data.$trigger.tool.name || tool_collation !== data.$trigger.tool.tool_collation){
               throw new Error("Operation " + data.$trigger.operation_id + " does not belong to tool " + data.$trigger.tool.name + " in collation " + data.$trigger.tool.tool_collation + ". Aborting deletion.");
             }
             return true;
           }`
-        },'delete_operation',null),
-      operation('delete_operation','fetch_request',{
-        url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
-        method:'DELETE',
-      },"message_success",null),
-      operation('message_success','run_script',{code:"module.exports = () => 'Operation ' + {{$trigger.operation_id}} + ' deleted successfully.';"},null,null)
+    },'delete_operation',null),
+    operation('delete_operation','fetch_request',{
+      url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
+      method:'DELETE',
+    },"message_success",null),
+    operation('message_success','run_script',{code:"module.exports = () => 'Operation ' + {{$trigger.operation_id}} + ' deleted successfully.';"},null,null)
   ]
 
 }
 
 export const ADD_CALL_TOOL_OPERATION_TOOL = {
-    name: 'add_call_tool_operation',
-    title: 'Add a Call Tool Operation to a composed tool',
-    description: 'Adds a call_tool operation step to an existing tool.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tool_id:  { type: 'integer', description: 'ID of the parent tool for this operation' },
-        slug:     { type: 'string',  description: 'Unique slug for this operation within the tool' },
-        invocation: INVOCATION_SCHEMA, // used in add
-        resolve:  { type: 'string',  description: 'Slug of next operation on success (omit to stop)' },
-        reject:   { type: 'string',  description: 'Slug of next operation on error (omit to stop)' },
-      },
-      required: ['tool_id', 'slug', 'invocation'],
+  name: 'add_call_tool_operation',
+  title: 'Add a Call Tool Operation to a composed tool',
+  description: 'Adds a call_tool operation step to an existing tool.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tool_id:  { type: 'integer', description: 'ID of the parent tool for this operation' },
+      slug:     { type: 'string',  description: 'Unique slug for this operation within the tool' },
+      invocation: INVOCATION_SCHEMA, // used in add
+      resolve:  { type: 'string',  description: 'Slug of next operation on success (omit to stop)' },
+      reject:   { type: 'string',  description: 'Slug of next operation on error (omit to stop)' },
     },
-    start_slug: 'build_body',
-    operations:[
-        operation('build_body','run_script',{code:`
+    required: ['tool_id', 'slug', 'invocation'],
+  },
+  start_slug: 'build_body',
+  operations:[
+    operation('build_body','run_script',{code:`
         module.exports = async function(data) {
           let result = {
               tool:    data.$trigger.tool_id,
               slug:    data.$trigger.slug,
               type:    'call_tool',
               config:  {
-                tool_collation: data.$trigger.invocation.tool_collation,
-                tool_name: data.$trigger.invocation.tool_name,
+                    invocation: data.$trigger.invocation
+                    iteration_mode: data.$trigger.invocation.iteration_mode || 'serial'
               }
           };
-          // build the optional config fields only when they are provided, to avoid overwriting existing values with 
-          // undefined when editing an existing operation
-          if(data.$trigger.invocation.iteration_mode) result.config.iteration_mode = data.$trigger.invocation.iteration_mode;
-          if(data.$trigger.invocation.tool_arguments) result.config.tool_arguments = data.$trigger.invocation.tool_arguments;
+          
           if(data.$trigger.resolve) result.resolve = data.$trigger.resolve;
           if(data.$trigger.reject) result.reject = data.$trigger.reject;
           
           return result;
         }
         `},'post_operation',null),
-        operation('post_operation','fetch_request',{
-          url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: '{{build_body}}',
-        } )
-    ]
+    operation('post_operation','fetch_request',{
+      url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: '{{build_body}}',
+    } )
+  ]
 }
 
 export const EDIT_CALL_TOOL_OPERATION_TOOL = {
-    name: 'edit_call_tool_operation',
-    title: 'Edit a Call Tool Operation in a composed tool',
-    description: 'Updates a call_tool operation step.  Only supplied fields are changed.',
-    inputSchema: {
-        type: 'object',
-        properties: {
-            operation_id: { type: 'integer', description: 'ID of the operation to update' },
-            tool_id: { type: 'integer', description: 'ID of the parent tool for this operation (used for safety checks)' },
-            slug:         { type: 'string',  description: 'New slug for this operation' },
-            invocation: INVOCATION_SCHEMA, // used in edit
-            resolve:      { type: 'string',  description: 'Slug of next operation on success (omit to keep current)' },
-            reject:       { type: 'string',  description: 'Slug of next operation on error (omit to keep current)' },
-        },
-        required: ['operation_id', 'tool_id'],
+  name: 'edit_call_tool_operation',
+  title: 'Edit a Call Tool Operation in a composed tool',
+  description: 'Updates a call_tool operation step.  Only supplied fields are changed.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      operation_id: { type: 'integer', description: 'ID of the operation to update' },
+      tool_id: { type: 'integer', description: 'ID of the parent tool for this operation (used for safety checks)' },
+      slug:         { type: 'string',  description: 'New slug for this operation' },
+      invocation: (() => {
+        let schema = {...INVOCATION_SCHEMA}; // used in edit
+        // all invocation fields are optional when editing, since the caller may want to
+        // keep the existing invocation and only update the resolve/reject paths, for example
+        delete schema.required
+        return schema;
+      })(), // used in edit
+      resolve:      { type: 'string',  description: 'Slug of next operation on success (omit to keep current)' },
+      reject:       { type: 'string',  description: 'Slug of next operation on error (omit to keep current)' },
     },
-    operations:[
-        operation('get_operation','fetch_request',{
-            url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}?fields=tool,id',
-        },'validate_tool_id'),
-        operation('validate_tool_id','run_script',{code:`
+    required: ['operation_id', 'tool_id'],
+  },
+  operations:[
+    // first, get the operation to check if it exists, and to make sure that it's parent tool is the one we expect
+    operation('get_operation','fetch_request',{
+      url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}?fields=tool,id',
+    },'validate_tool_id'),
+
+    // validate that the operation's parent tool matches the expected tool from the input (avoid editing the wrong operation when given a wrong ID)
+    operation('validate_tool_id','run_script',{code:`
         module.exports = async function(data) {
     let expected_tool_id = data.$trigger.tool_id;
     let actual_tool_id = data.get_operation?.data?.tool;
@@ -694,223 +712,35 @@ export const EDIT_CALL_TOOL_OPERATION_TOOL = {
     return true;
         }
         `},'build_patch'),
-        operation('build_patch','run_script',{code:`
+
+    operation('build_patch','run_script',{code:`
         module.exports = async function(data) {
         let patch = {};
         if(data.$trigger.slug) patch.slug = data.$trigger.slug;
         if(data.$trigger.resolve) patch.resolve = data.$trigger.resolve;
         if(data.$trigger.reject) patch.reject = data.$trigger.reject;
-        if(data.$trigger.invocation) {
-            patch.config = {};
-            if(data.$trigger.invocation.tool_collation) patch.config.tool_collation = data.$trigger.invocation.tool_collation;
-            if(data.$trigger.invocation.tool_name) patch.config.tool_name = data.$trigger.invocation.tool_name;
-            if(data.$trigger.invocation.iteration_mode) patch.config.iteration_mode = data.$trigger.invocation.iteration_mode;
-            if(data.$trigger.invocation.tool_arguments) patch.config.tool_arguments = data.$trigger.invocation.tool_arguments;
-            
-            // config has to be a json string, so convert it now
-            patch.config = JSON.stringify(patch.config);
-        }
+        
+        let config = (k,v)=>{
+            patch.config = patch.config || {};
+            patch.config[k] = v;
+        } 
+      
+        if(data.$trigger.invocation) config('invocation', data.$trigger.invocation);
+        if(data.$trigger.invocation?.iteration_mode) config('iteration_mode', data.$trigger.invocation.iteration_mode);
         
         return patch;
         }
         `},'patch_operation'),
-        operation('patch_operation','fetch_request',{
-          url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: '{{patch_operation}}',
-        })
-    ]
-}
-
-// ─── message_v1_responses ────────────────────────────────────────────────────
-//
-// Drives an OpenAI Responses-API-compatible tool-calling loop.
-// The request accumulator is passed through three run_script stages that chain
-// back on themselves until the model stops returning function_call items.
-
-export const MESSAGE_V1_RESPONSES_TOOL = {
-  name: 'message_v1_responses',
-  title: 'Message v1 Responses',
-  description:
-    'Sends a request to an OpenAI-compatible Responses API endpoint and drives a ' +
-    'tool-calling loop until the model returns a final response.  Each function_call ' +
-    'item returned by the model is dispatched to the MCP tool collation supplied by ' +
-    'the caller; results are appended to the conversation and the model is called again ' +
-    'until no further tool calls are requested.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      request: {
-        type: 'object',
-        description:
-          'Request body sent to the API (e.g. { model, input, tools, … }).  ' +
-          'The "input" (or "messages") array is updated automatically with tool ' +
-          'results during the loop.',
-        properties: {
-          model: { type: 'string', description: 'Model identifier (e.g. gpt-4o)' },
-        },
-        required: ['model'],
-      },
-      endpoint: {
-        type: 'string',
-        description: 'API endpoint URL (e.g. https://api.openai.com/v1/responses)',
-      },
-      token: {
-        type: 'string',
-        description: 'Bearer token used in the Authorization header',
-      },
-      tool_collation: {
-        type: 'string',
-        description:
-          'MCP tool collation to use when dispatching tool calls returned by the model. ' +
-          'Required when the model is expected to make tool calls.',
-      },
-    },
-    required: ['request', 'endpoint', 'token'],
-  },
-  start_slug: 'init',
-  operations: [
-    // ── 1. Seed the request accumulator ─────────────────────────────────────
-    operation('init', 'run_script', {
-      code: [
-        'module.exports = async function(data) {',
-        '  return { request: data.$trigger.request };',
-        '};',
-      ].join('\n'),
-    }, 'call_api'),
-
-    // ── 2. POST the current request to the LLM endpoint ─────────────────────
-    operation('call_api', 'fetch_request', {
-      url: '{{$trigger.endpoint}}',
-      method: 'POST',
+    operation('patch_operation','fetch_request',{
+      url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
+      method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer {{$trigger.token}}',
       },
-      // $last is always { request: <object> } – from init on first call,
-      // from append_result on subsequent calls.
-      body: '{{$last.request}}',
-    }, 'extract_calls'),
-
-    // ── 3. Extract tool calls from the response ──────────────────────────────
-    // Throws { done, response } (→ finalize) when there are no function_call items.
-    // Returns { request, tool_calls } (→ prepare_call) when there are.
-    operation('extract_calls', 'run_script', {
-      code: [
-        'module.exports = async function(data) {',
-        '  var response = data.$last;',
-        '  // On the first LLM turn append_result has not run yet; use init.request.',
-        '  // On subsequent turns use the request that append_result produced.',
-        '  var current_request = (data.append_result && data.append_result.request)',
-        '    ? data.append_result.request',
-        '    : data.init.request;',
-        '  var output = response.output || [];',
-        '  var tool_calls = output.filter(function(item) {',
-        '    return item.type === "function_call";',
-        '  });',
-        '  if (tool_calls.length === 0) {',
-        '    throw { done: true, response: response };',
-        '  }',
-        '  // Append the assistant output (including the function_call items) to the',
-        '  // conversation so the model receives its own turn on the next API call.',
-        '  var input_key = "input" in current_request ? "input" : "messages";',
-        '  var updated_input = (current_request[input_key] || []).concat(output);',
-        '  var updated_request = Object.assign({}, current_request);',
-        '  updated_request[input_key] = updated_input;',
-        '  return {',
-        '    request: updated_request,',
-        '    tool_calls: tool_calls.map(function(tc) {',
-        '      return {',
-        '        call_id: tc.call_id,',
-        '        name: tc.name,',
-        '        arguments: (function() {',
-        '          if (typeof tc.arguments !== "string") return tc.arguments || {};',
-        '          try { return JSON.parse(tc.arguments); } catch(e) { return {}; }',
-        '        }()),',
-        '      };',
-        '    }),',
-        '  };',
-        '};',
-      ].join('\n'),
-    }, 'prepare_call', 'finalize'),
-
-    // ── 4. Dequeue the next tool call ────────────────────────────────────────
-    // $last is either extract_calls result (first visit) or the thrown
-    // { request, tool_calls } from append_result (looped visits).
-    operation('prepare_call', 'run_script', {
-      code: [
-        'module.exports = async function(data) {',
-        '  var state = data.$last;',
-        '  var next_call = state.tool_calls[0];',
-        '  var remaining = state.tool_calls.slice(1);',
-        '  return {',
-        '    request: state.request,',
-        '    next_call: next_call,',
-        '    remaining: remaining,',
-        '  };',
-        '};',
-      ].join('\n'),
-    }, 'invoke_tool'),
-
-    // ── 5. Dispatch the current tool call to the MCP tool collation ──────────
-    // context.prepare_call is re-read on every visit so the tool name and
-    // arguments always match the currently dequeued call.
-    operation('invoke_tool', 'call_tool', {
-      tool_collation: '{{$trigger.tool_collation}}',
-      tool_name: '{{prepare_call.next_call.name}}',
-      tool_arguments: '{{prepare_call.next_call.arguments}}',
-      iteration_mode: 'serial',
-    }, 'append_result'),
-
-    // ── 6. Append the tool result and decide what to do next ─────────────────
-    // Throws { request, tool_calls } (→ prepare_call) when more calls remain.
-    // Returns { request } (→ call_api) when all tool calls for this turn are done.
-    operation('append_result', 'run_script', {
-      code: [
-        'module.exports = async function(data) {',
-        '  var tool_result = data.$last;',
-        '  var state = data.prepare_call;',
-        '  // CallTool.trim_output wraps single results as { $last, $vars }.  Unwrap to the',
-        '  // plain value; for array results (parallel iteration) unwrap each element.',
-        '  var raw = tool_result;',
-        '  var result_value = Array.isArray(raw)',
-        '    ? raw.map(function(r) { return r && r.$last !== undefined ? r.$last : r; })',
-        '    : (raw && raw.$last !== undefined ? raw.$last : raw);',
-        '  var tool_output = {',
-        '    type: "function_call_output",',
-        '    call_id: state.next_call.call_id,',
-        '    output: JSON.stringify(result_value),',
-        '  };',
-        '  var input_key = "input" in state.request ? "input" : "messages";',
-        '  var updated_input = (state.request[input_key] || []).concat([tool_output]);',
-        '  var updated_request = Object.assign({}, state.request);',
-        '  updated_request[input_key] = updated_input;',
-        '  if (state.remaining.length > 0) {',
-        '    // More tool calls queued – throw so the reject path loops back to prepare_call.',
-        '    throw { request: updated_request, tool_calls: state.remaining };',
-        '  }',
-        '  // All tool calls for this turn are done – return so call_api gets the updated request.',
-        '  return { request: updated_request };',
-        '};',
-      ].join('\n'),
-    }, 'call_api', 'prepare_call'),
-
-    // ── 7. Return the final model response ───────────────────────────────────
-    // $last is the thrown { done: true, response } object from extract_calls.
-    operation('finalize', 'run_script', {
-      code: [
-        'module.exports = async function(data) {',
-        '  return data.$last && data.$last.response !== undefined',
-        '    ? data.$last.response',
-        '    : data.$last;',
-        '};',
-      ].join('\n'),
-    }),
-  ],
-};
+      body: '{{patch_operation}}',
+    })
+  ]
+}
 
 // ─── All default tools ────────────────────────────────────────────────────────
 
@@ -927,18 +757,15 @@ export const DEFAULT_TOOLS = [
   LIST_OPERATION_TYPES_TOOL,
   DELETE_OPERATION_TOOL,
 
-    // script operations
-    ADD_RUN_SCRIPT_OPERATION_TOOL,
-    EDIT_RUN_SCRIPT_OPERATION_TOOL,
+  // script operations
+  ADD_RUN_SCRIPT_OPERATION_TOOL,
+  EDIT_RUN_SCRIPT_OPERATION_TOOL,
 
-    // fetch_request operations
-    ADD_FETCH_REQUEST_OPERATION_TOOL,
-    EDIT_FETCH_REQUEST_OPERATION_TOOL,
+  // fetch_request operations
+  ADD_FETCH_REQUEST_OPERATION_TOOL,
+  EDIT_FETCH_REQUEST_OPERATION_TOOL,
 
-    // call_tool operations
-    ADD_CALL_TOOL_OPERATION_TOOL,
-    EDIT_CALL_TOOL_OPERATION_TOOL,
-
-    // agentic / LLM operations
-    MESSAGE_V1_RESPONSES_TOOL,
+  // call_tool operations
+  ADD_CALL_TOOL_OPERATION_TOOL,
+  EDIT_CALL_TOOL_OPERATION_TOOL,
 ];
