@@ -5,7 +5,7 @@ import {checkInitializationState, initializeSchema} from './directus/schema.mjs'
 import {DEFAULT_TOOLS} from './directus/default_tools.mjs';
 import {setupPermissions} from './directus/permissions.mjs';
 import {fetchToolsForCollation} from "./functions/get_tools_with_operations.mjs";
-import {buildLandingPage} from './functions/buildLandingPage.mjs';
+import {build_html_page,list_pages} from './functions/build_html_page.mjs';
 const ajv = new Ajv({ allErrors: true, coerceTypes: false });
 import {
     MethodNotFoundError,
@@ -61,6 +61,16 @@ export class App {
     // supporting the MCP protocol structure for /mcp routes
     this.app.use(spec_implementation);
 
+    this.app.use((req, res, next) => {
+        res.html = {
+            send_page: (page_slug) =>{
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                res.send(build_html_page(page_slug, this.env));
+            }
+        }
+        next();
+    });
+
     // Skip auth for public paths and for the unauthenticated MCP initialize handshake.
     // All other requests require a Bearer token (injected as req.token by this middleware).
     this.app.use(skipAuthFor(['/', '/health', '/initialize']));
@@ -74,9 +84,14 @@ export class App {
     let prefix = this.env.ROUTES_PREFIX || '';
     // Landing page
     this.app.get(prefix + '/', (req, res) => {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.send(buildLandingPage(this.DIRECTUS_BASE_URL));
+      res.html.send_page('index');
     });
+
+    list_pages().forEach(page_slug => {
+        this.app.get(prefix + '/' + page_slug, (req, res) => {
+            res.html.send_page(page_slug);
+        });
+    })
 
     // Initialization state check
     this.app.get(prefix + '/initialize', async (req, res) => {

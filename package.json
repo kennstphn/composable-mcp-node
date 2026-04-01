@@ -1,5 +1,8 @@
 {
   "name": "composable-mcp-node",
+  "engines": {
+    "node": ">=22.11.0"
+  },
   "version": "0.3.0",
   "description": "A Node.js HTTP server that exposes composed tools as MCP endpoints",
   "type": "module",
