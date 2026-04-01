@@ -8,6 +8,7 @@
   "type": "module",
   "main": "main.mjs",
   "scripts": {
+    "build": "node build.mjs",
     "start": "node main.mjs",
     "start:pm2": "pm2 start main.mjs --name composable-mcp-node",
     "stop": "pm2 stop composable-mcp-node",
