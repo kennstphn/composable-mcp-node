@@ -35,7 +35,7 @@ export class App {
     this.env = env;
     this.env.toString = () =>  JSON.stringify(this.env);
 
-    build_dist(this.env)
+    build_dist({$env: this.env})
 
     this.app = express();
     this.setupMiddleware();
