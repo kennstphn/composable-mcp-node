@@ -13,7 +13,7 @@ let pages = {}; // { 'index': 'Hello {{name}}!', ... }
 // Load all .mustache files dynamically
 for (const file of readdirSync(pagesDir, { withFileTypes: true })) {
     if (file.isFile() && file.name.endsWith('.mustache')) {
-        const name = file.name.slice(0, -8); // 'index.mustache' → 'index'
+        const name = file.name.replace(/\.mustache$/i,''); // 'index.mustache' → 'index'
         const filePath = join(pagesDir, file.name);
 
         // Read as UTF-8 text (synchronous for startup simplicity)
