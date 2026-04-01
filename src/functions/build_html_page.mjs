@@ -1,7 +1,7 @@
 import Mustache from 'mustache';
-import { readdirSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { readdirSync, readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pagesDir = join(__dirname, '../pages');
