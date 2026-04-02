@@ -74,7 +74,7 @@ export class CallTool {
         if ( Array.isArray(invocation) ) {
           return await this.invoke_tool_list(invocation, bearerToken, iteration_mode);
         }
-        return await this.invoke_tool(invocation, bearerToken);
+        return await this.invoke_tool(invocation, bearerToken,context);
     } catch (err){
         if(err instanceof CallToolError){
             throw err;
@@ -115,7 +115,7 @@ export class CallTool {
   }
 
 
-  async invoke_tool(invocation, bearerToken){
+  async invoke_tool(invocation, bearerToken, context){
     let {name, arguments:args} = invocation;
     // if we have "__" in the name, we can assume that the format is "collation__toolname", otherwise we can treat the
     // whole name as the tool name and look for it in the built in tools
