@@ -146,8 +146,8 @@ export class App {
     this.app.post(prefix + '/mcp', mcpHandlerBound);
 
     let wsHandlerBound = this.ws_handler.bind(this);
-    this.app.ws(prefix + '/mcp/:tool_collation');
-    this.app.ws(prefix + '/mcp', wsHandlerBound);
+    this.app.ws(prefix + '/ws/:tool_collation');
+    this.app.ws(prefix + '/ws', wsHandlerBound);
 
 
   }
@@ -161,8 +161,9 @@ export class App {
         console.log(`   Health:             GET  /health`);
         console.log(`   Initialize:         POST /initialize`);
         console.log(`   MCP (default):      POST /mcp`);
-        console.log(`   MCP:                POST /mcp/{tool_collation}`);
-        console.log(`   WebSocket MCP:      ws   /mcp/{tool_collation}`);
+        console.log(`   MCP:                POST /mcp/:tool_collation?`);
+        console.log(`   WebSocket MCP:      ws   /ws/:tool_collation?`);
+
         resolve(this._server);
       });
     });
