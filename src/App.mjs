@@ -7,16 +7,11 @@ import {DEFAULT_TOOLS} from './directus/default_tools.mjs';
 import {setupPermissions} from './directus/permissions.mjs';
 import {fetchToolsForCollation} from "./functions/get_tools_with_operations.mjs";
 const ajv = new Ajv({ allErrors: true, coerceTypes: false });
-import {
-    MethodNotFoundError,
-    InvalidParamsError, MESSAGE_SCHEMA
-} from "./JsonRpc_2_0.mjs";
-import {extractBearerToken, skipAuthFor} from "./middleware/skipAuth.mjs";
-import {accountability, loadAccountability} from "./middleware/accountability.mjs";
-import {spec_implementation_middleware} from "./middleware/spec_implementation_middleware.mjs";
+import {MESSAGE_SCHEMA} from "./JsonRpc_2_0.mjs";
 import {join} from 'path';
 import {build_dist} from "./functions/build_dist.mjs";
 import {CallTool} from "./operations/CallTool.mjs";
+import {get_accountability, get_token} from "./functions/accountability.mjs";
 
 
 export class App {
@@ -63,30 +58,26 @@ export class App {
       });
     }
 
-
-    // provides "mcp" property on req with helper methods for generating MCP responses,
-    // supporting the MCP protocol structure for /mcp routes
-    this.app.use(spec_implementation_middleware);
-
-    // Skip auth for public paths and for the unauthenticated MCP initialize handshake.
-    // All other requests require a Bearer token (injected as req.token by this middleware).
-    this.app.use(skipAuthFor(['/', '/health', '/initialize']));
-
-    // Accountability middleware to enrich req with $accountability info based on the token's associated Directus user and roles.
-    this.app.use(accountability(this.DIRECTUS_BASE_URL)); // best-effort: enriches req.$accountability
-
   }
 
   setupRoutes() {
 
     let prefix = this.env.ROUTES_PREFIX || '';
-    this.app.use(prefix, express.static(join(import.meta.dirname,'../dist')))
+
+    this.app.use(prefix, express.static(join(import.meta.dirname,'../dist')));
 
     // Initialization state check
     this.app.get(prefix + '/initialize', async (req, res) => {
+        let accountability = await get_accountability(req,this.DIRECTUS_BASE_URL);
+
+        if( ! accountability || ! accountability.id ){
+            res.status(401).json({ error: 'Authorization required', state: 'needed' });
+        }
+
+        let token = get_token(req);
 
       try {
-        const result = await checkInitializationState(this.DIRECTUS_BASE_URL, req.token);
+        const result = await checkInitializationState(this.DIRECTUS_BASE_URL, token);
         return res.json({
           state: result.state,
           ...(result.details ? { details: result.details } : {}),
@@ -110,16 +101,19 @@ export class App {
 
     // Initialize — create Directus collections, seed default tools, set up permissions
     this.app.post(prefix + '/initialize', async (req, res) => {
+        let accountability = await get_accountability(req,this.DIRECTUS_BASE_URL);
 
-      // POST /initialize always requires authentication (GET /initialize is public for probing).
-      if (!req.token) {
+        // POST /initialize always requires authentication (GET /initialize is public for probing).
+      if (!accountability || !accountability.id) {
         return res.status(401).json({ error: 'Authorization required', state: 'needed' });
       }
+
+      let token = get_token(req);
 
       // Check current state first; block early if migration is needed
       let currentState;
       try {
-        currentState = await checkInitializationState(this.DIRECTUS_BASE_URL, req.token);
+        currentState = await checkInitializationState(this.DIRECTUS_BASE_URL, token);
       } catch (err) {
         return res.status(err.status || 500).json({ ok: false, error: err.message });
       }
@@ -135,8 +129,8 @@ export class App {
 
       const results = {};
       try {
-        results.schema      = await initializeSchema(this.DIRECTUS_BASE_URL, req.token);
-        results.permissions  = await setupPermissions(this.DIRECTUS_BASE_URL, req.token);
+        results.schema      = await initializeSchema(this.DIRECTUS_BASE_URL, token);
+        results.permissions  = await setupPermissions(this.DIRECTUS_BASE_URL, token);
         return res.json({ ok: true, ...results });
       } catch (err) {
         return res.status(err.status || 500).json({
@@ -188,18 +182,27 @@ export class App {
       const { method, params, id } = req.body || {};
       const { tool_collation } = req.params;
 
-      let data = await this.handle_jsonrpc_2_request(method, params, id, tool_collation, req.token);
+      const token = get_token(req);
+
+      const accountability = await get_accountability(req, this.DIRECTUS_BASE_URL);
+      if ( ! accountability || ! accountability.id ){
+            return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      let data = await this.handle_jsonrpc_2_request(method, params, id, tool_collation, token, accountability);
       if(!data) return res.status(204).send();
       // res with header application/json
       res.setHeader('Content-Type', 'application/json');
-      return res.send(data);
+      return res.json(data);
 
   }
 
   user_websockets = new Map();
   async ws_handler(ws, req) {
-      let token = extractBearerToken(req);
-      let accountability = await loadAccountability(token,this.env.DIRECTUS_BASE_URL);
+      let token = get_token(req);
+      let accountability = null;
+      accountability = await get_accountability(req,this.env.DIRECTUS_BASE_URL);
+
       let tool_collation = req.params?.tool_collation || null;
 
       if( ! accountability || ! accountability.id ){
@@ -227,8 +230,21 @@ export class App {
 
       // Close handler – the most important one for cleanup
       ws.on('close', (code, reason) => {
+          clearInterval(heartbeat_interval);
           this.user_websockets.get(accountability.id)?.delete(ws);
       });
+
+      let close_timer;
+      let restart_close_timer = () => {
+            if (close_timer) clearTimeout(close_timer);
+            close_timer = setTimeout(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close(1000, 'Idle timeout');
+                }
+            }, 30 * 1000); // 5 minutes of idle time allowed
+      };
+      close_timer();
+
 
       ws.on('message', async (message) => {
           let data;
@@ -253,18 +269,21 @@ export class App {
               }));
           }
 
+          // restart the idle timeout on every valid message.
+          restart_close_timer();
+
           if(Array.isArray(data)){
               if(data.length === 0) return; // ignore empty batch
 
               // batch, process in parallel and respond with an array of results
-              let results = await Promise.all(data.map(d => this.handle_jsonrpc_2_request(d.method, d.params, d.id, tool_collation, token)));
+              let results = await Promise.all(data.map(d => this.handle_jsonrpc_2_request(d.method, d.params, d.id, tool_collation, token, accountability)));
               if( ws.readyState !== WebSocket.OPEN) return;
-              ws.send(results);
+              ws.send(JSON.stringify(results));
           }else {
                 // single request, process and respond
-                let result = await this.handle_jsonrpc_2_request(data.method, data.params, data.id, tool_collation, token);
+                let result = await this.handle_jsonrpc_2_request(data.method, data.params, data.id, tool_collation, token, accountability);
                 if( ws.readyState !== WebSocket.OPEN) return;
-                ws.send(result);
+                ws.send(JSON.stringify(result));
           }
 
       });
@@ -283,16 +302,17 @@ export class App {
   }
 
     /**
-     * Handles a JSON-RPC 2.0 request and returns the appropriate response object as a string.
-     *
+     * Handles a JSON-RPC 2.0 request. If the "id" field is missing, treats it as a notification and processes it with
+     * handle_jsonrpc_notification without sending a response.
      * @param method
      * @param params
      * @param id
      * @param tool_collation
      * @param token
-     * @returns {Promise<string>}
+     * @param $accountability
+     * @returns {Promise<*&{jsonrpc: string, id}>}
      */
-  handle_jsonrpc_2_request = async (method, params, id, tool_collation, token) => {
+  handle_jsonrpc_2_request = async (method, params, id, tool_collation, token, $accountability) => {
       // if id is missing, we can treat it as a notification and drop early without processing, since we won't be
       // sending a response back anyway. This is per the JSON-RPC 2.0 spec.
       if(id === undefined || id === null){
@@ -303,13 +323,12 @@ export class App {
       }
 
 
-      let $accountability = await loadAccountability(token, this.DIRECTUS_BASE_URL);
       let respond = (o)=>{
-          return JSON.stringify({
+          return {
               jsonrpc: "2.0",
               id,
               ...o
-          });
+          };
       }
 
       if(method === 'ping'){
