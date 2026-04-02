@@ -139,7 +139,7 @@ export class CallTool {
         if (!tool) throw new CallToolError(`CallTool: tool with name ${tool_name} not found in default tools`);
 
     }else{
-        let tools = await fetchToolsForCollation(tool_collation, bearerToken, context.$env.DIRECTUS_BASE_URL);
+        let tools = await fetchToolsForCollation(context.$env.DIRECTUS_BASE_URL, bearerToken, tool_collation);
         let tool = tools.find(t => t.name === tool_name);
 
         if ( !tool) throw new CallToolError(`CallTool: tool with name ${tool_name} not found in collation ${tool_collation}`);
