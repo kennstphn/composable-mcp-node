@@ -239,6 +239,12 @@ export class App {
             if (close_timer) clearTimeout(close_timer);
             close_timer = setTimeout(() => {
                 if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        jsonrpc: "2.0",
+                        method: "notification/timeout",
+                        params: { message: "Connection closed due to inactivity" },
+                        id: null
+                    }))
                     ws.close(1000, 'Idle timeout');
                 }
             }, 30 * 1000); // 5 minutes of idle time allowed
