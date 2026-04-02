@@ -244,7 +244,7 @@ export class App {
                 }
             }, 30 * 1000); // 5 minutes of idle time allowed
       };
-      close_timer();
+      restart_close_timer();
 
 
       ws.on('message', async (message) => {
