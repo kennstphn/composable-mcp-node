@@ -148,7 +148,7 @@ export class CallTool {
 
     // compile the validation inputSchema and test against the invocation.arguments;
     // if validation fails, throw an error to prevent executing the sub-tool with invalid input
-    if (tool.inputSchema) {
+    if (tool?.inputSchema) {
         let {isValid, errors} = validate_arguments(tool.inputSchema, args, tool.name);
         if (!isValid) {
             // keep the same error format as the validation function for consistency, and to allow the parent flow to handle it if needed
