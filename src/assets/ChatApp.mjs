@@ -36,6 +36,12 @@ export class ChatApp extends EventTarget {
         super();
         this.env = env;
         this.storage = new ChatStorage(env);
+        // heartbeat to keep alive connections
+        setInterval(() => {
+            if (this.connected) {
+                this.#ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'ping' }));
+            }
+        },20 * 1000)
     }
 
     // ── Connection ──────────────────────────────────────────────────────────
