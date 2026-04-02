@@ -231,7 +231,6 @@ export class App {
 
       // Close handler – the most important one for cleanup
       ws.on('close', (code, reason) => {
-          clearInterval(heartbeat_interval);
           this.user_websockets.get(accountability.id)?.delete(ws);
       });
 
@@ -239,7 +238,7 @@ export class App {
       let restart_close_timer = () => {
             if (close_timer) clearTimeout(close_timer);
             close_timer = setTimeout(() => {
-                if (ws.readyState === WebSocket.OPEN) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.close(1000, 'Idle timeout');
                 }
             }, 30 * 1000); // 5 minutes of idle time allowed
