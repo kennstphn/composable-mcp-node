@@ -146,7 +146,7 @@ export class App {
     this.app.post(prefix + '/mcp', mcpHandlerBound);
 
     let wsHandlerBound = this.ws_handler.bind(this);
-    this.app.ws(prefix + '/ws/:tool_collation');
+    this.app.ws(prefix + '/ws/:tool_collation', wsHandlerBound);
     this.app.ws(prefix + '/ws', wsHandlerBound);
 
 
