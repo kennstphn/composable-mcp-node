@@ -1,6 +1,4 @@
 // middleware/auth.js
-import cookie from 'cookie';
-
 export function extractBearerToken(req) {
     const header = req.headers.authorization;
 

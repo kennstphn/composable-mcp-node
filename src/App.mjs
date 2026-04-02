@@ -1,6 +1,7 @@
 import express from 'express';
+import expressWs from 'express-ws';
 import Ajv from 'ajv';
-import {run_operations} from './functions/run_operations.mjs';
+import {get_fresh_vars, run_operations} from './functions/run_operations.mjs';
 import {checkInitializationState, initializeSchema} from './directus/schema.mjs';
 import {DEFAULT_TOOLS} from './directus/default_tools.mjs';
 import {setupPermissions} from './directus/permissions.mjs';
@@ -8,13 +9,14 @@ import {fetchToolsForCollation} from "./functions/get_tools_with_operations.mjs"
 const ajv = new Ajv({ allErrors: true, coerceTypes: false });
 import {
     MethodNotFoundError,
-    InvalidParamsError
+    InvalidParamsError, MESSAGE_SCHEMA
 } from "./JsonRpc_2_0.mjs";
-import {skipAuthFor} from "./middleware/skipAuth.mjs";
-import {accountability} from "./middleware/accountability.mjs";
-import {spec_implementation} from "./middleware/spec_implementation.mjs";
+import {extractBearerToken, skipAuthFor} from "./middleware/skipAuth.mjs";
+import {accountability, loadAccountability} from "./middleware/accountability.mjs";
+import {spec_implementation_middleware} from "./middleware/spec_implementation_middleware.mjs";
 import {join} from 'path';
 import {build_dist} from "./functions/build_dist.mjs";
+import {CallTool} from "./operations/CallTool.mjs";
 
 
 export class App {
@@ -38,6 +40,7 @@ export class App {
     build_dist({$env: this.env})
 
     this.app = express();
+    expressWs(this.app);
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -63,7 +66,7 @@ export class App {
 
     // provides "mcp" property on req with helper methods for generating MCP responses,
     // supporting the MCP protocol structure for /mcp routes
-    this.app.use(spec_implementation);
+    this.app.use(spec_implementation_middleware);
 
     // Skip auth for public paths and for the unauthenticated MCP initialize handshake.
     // All other requests require a Bearer token (injected as req.token by this middleware).
@@ -144,18 +147,15 @@ export class App {
       }
     });
 
-    let mcpHandlerBound = this.mcp_handler.bind(this);
+    let mcpHandlerBound = this.mcp_http_handler.bind(this);
     this.app.post(prefix + '/mcp/:tool_collation', mcpHandlerBound);
     this.app.post(prefix + '/mcp', mcpHandlerBound);
 
+    let wsHandlerBound = this.ws_handler.bind(this);
+    this.app.ws(prefix + '/mcp/:tool_collation');
+    this.app.ws(prefix + '/mcp', wsHandlerBound);
 
-  }
 
-  /**
-   * Execute a flow using the iterative runtime
-   */
-  async executeFlow(flow, context, token) {
-    return run_operations(flow.operations, flow.start_slug, context, token);
   }
 
   async listen() {
@@ -168,6 +168,7 @@ export class App {
         console.log(`   Initialize:         POST /initialize`);
         console.log(`   MCP (default):      POST /mcp`);
         console.log(`   MCP:                POST /mcp/{tool_collation}`);
+        console.log(`   WebSocket MCP:      ws   /mcp/{tool_collation}`);
         resolve(this._server);
       });
     });
@@ -183,90 +184,223 @@ export class App {
     });
   }
 
-  async run_tool(tool, inputData,req) {
-      let {token,$accountability} = req
-
-      return await this.executeFlow(tool, {
-          $trigger: inputData,
-          $accountability,
-          $env: JSON.parse(JSON.stringify(this.env)), // protect the env from being overridden
-      }, token);
-  }
-
-  async mcp_handler(req, res) {
-      const { method, params } = req.body || {};
+  async mcp_http_handler(req, res) {
+      const { method, params, id } = req.body || {};
       const { tool_collation } = req.params;
 
-      if (method === 'initialize') {
-          return res.mcp.general_result({
-              protocolVersion: '2024-11-05',
-              capabilities: { tools: { list: true, call: true } },
-              serverInfo: { name: 'composable-mcp', version: '0.1.0' },
-          });
-      }
+      let data = await this.handle_jsonrpc_2_request(method, params, id, tool_collation, req.token);
+      if(!data) return res.status(204).send();
+      // res with header application/json
+      res.setHeader('Content-Type', 'application/json');
+      return res.send(data);
 
-      if (method === 'notifications/initialized') {
-          return res.mcp.empty_response(204);
-      }
-
-      if (method === 'ping') {
-          return res.mcp.general_result({});
-      }
-
-      // Resolve tools — either from Directus or built-in defaults
-      let tools;
-      try {
-          tools = tool_collation
-              ? await fetchToolsForCollation(this.DIRECTUS_BASE_URL, req.token, tool_collation)
-              : DEFAULT_TOOLS;
-      } catch (err) {
-          return res.mcp.general_error(err);
-      }
-
-      if (method === 'tools/list') {
-          return res.mcp.general_result({
-              tools: tools.map(t => ({
-                  name: t.name,
-                  title: t.title,
-                  description: t.description || '',
-                  inputSchema: t.inputSchema || { type: 'object', properties: {} },
-              })),
-          });
-      }
-
-      if (method === 'tools/call') {
-          const { name, arguments: args } = params || {};
-          const tool = tools.find(t => t.name === name);
-
-          if (!tool) {
-              return res.mcp.general_error(
-                  new InvalidParamsError(
-                      tool_collation
-                          ? `Tool "${name}" not found in collation "${tool_collation}"`
-                          : `Tool "${name}" not found`
-                  )
-              );
-          }
-
-          if (tool.inputSchema) {
-              const validate = ajv.compile(tool.inputSchema);
-              if (!validate(args || {})) {
-                  const messages = (validate.errors || [])
-                      .map(e => `${e.instancePath} ${e.message}`.trim())
-                      .join('; ');
-                  return res.mcp.general_error(new InvalidParamsError(messages));
-              }
-          }
-
-          try {
-              const result = await this.run_tool(tool, args || {}, req);
-              return res.mcp.tool_call_result(result.$last, result.$vars.isError);
-          } catch (err) {
-              return res.mcp.general_error(err);
-          }
-      }
-
-      return res.mcp.general_error(new MethodNotFoundError(`Method not found: ${method}`));
   }
+
+  user_websockets = new Map();
+  async ws_handler(ws, req) {
+      let token = extractBearerToken(req);
+      let accountability = await loadAccountability(token,this.env.DIRECTUS_BASE_URL);
+      let tool_collation = req.params?.tool_collation || null;
+
+      if( ! accountability || ! accountability.id ){
+          // close websocket. We don't allow anonymous access to the websocket, or lazy authentication after connection.
+          return ws.close(1008, 'Unauthorized');
+      }
+
+      if ( ! this.user_websockets.has(accountability.id)) this.user_websockets.set(accountability.id, new Set());
+
+      this.user_websockets.get(accountability.id).add(ws);
+
+      // Error handler – for logging and early detection
+      ws.on('error', (err) => {
+          // Optional: Try to send one last error message to the client
+          try {
+              if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({
+                      jsonrpc: "2.0",
+                      error: { code: -32099, message: "Internal WebSocket error: " + err?.message },
+                      id: null
+                  }));
+              }
+          } catch (_) {}
+      });
+
+      // Close handler – the most important one for cleanup
+      ws.on('close', (code, reason) => {
+          this.user_websockets.get(accountability.id)?.delete(ws);
+      });
+
+      ws.on('message', async (message) => {
+          let data;
+          try{
+              // parse the msg as json first
+              data = JSON.parse(message);
+          }catch (err){
+              // if we fail to parse, send an error back to the client but keep the connection open
+                return ws.send(JSON.stringify({
+                    jsonrpc: "2.0",
+                    error: { code: -32700, message: "Invalid JSON: " + err?.message },
+                }));
+          }
+
+          let valid = this.message_validator(data);
+          if(! valid){
+              // if the message fails validation, send an error back to the client but keep the connection open
+              return ws.send(JSON.stringify({
+                  jsonrpc: "2.0",
+                  error: { code: -32600, message: "Invalid message format", details: this.message_validator.errors },
+                  id: data.id || null
+              }));
+          }
+
+          if(Array.isArray(data)){
+              if(data.length === 0) return; // ignore empty batch
+
+              // batch, process in parallel and respond with an array of results
+              let results = await Promise.all(data.map(d => this.handle_jsonrpc_2_request(d.method, d.params, d.id, tool_collation, token)));
+              if( ws.readyState !== WebSocket.OPEN) return;
+              ws.send(results);
+          }else {
+                // single request, process and respond
+                let result = await this.handle_jsonrpc_2_request(data.method, data.params, data.id, tool_collation, token);
+                if( ws.readyState !== WebSocket.OPEN) return;
+                ws.send(result);
+          }
+
+      });
+
+  }
+
+  message_validator = ajv.compile(MESSAGE_SCHEMA);
+
+  get cloned_environment(){
+    return JSON.parse(JSON.stringify(this.env));
+  }
+
+  handle_jsonrpc_notification = async (method, params, tool_collation, token) => {
+      console.info(`Received JSON-RPC notification: method=${method}, params=${JSON.stringify(params)}, tool_collation=${tool_collation}`);
+      // todo as needed
+  }
+
+    /**
+     * Handles a JSON-RPC 2.0 request and returns the appropriate response object as a string.
+     *
+     * @param method
+     * @param params
+     * @param id
+     * @param tool_collation
+     * @param token
+     * @returns {Promise<string>}
+     */
+  handle_jsonrpc_2_request = async (method, params, id, tool_collation, token) => {
+      // if id is missing, we can treat it as a notification and drop early without processing, since we won't be
+      // sending a response back anyway. This is per the JSON-RPC 2.0 spec.
+      if(id === undefined || id === null){
+
+          // fire-and-forget notification handling (e.g. for client events that don't require a response, like "notifications/initialized")
+          this.handle_jsonrpc_notification(...arguments);
+          return; // no response for notifications
+      }
+
+
+      let $accountability = await loadAccountability(token, this.DIRECTUS_BASE_URL);
+      let respond = (o)=>{
+          return JSON.stringify({
+              jsonrpc: "2.0",
+              id,
+              ...o
+          });
+      }
+
+      if(method === 'ping'){
+          return respond({ result: {} });
+      }
+
+      if (method === 'initialize') {
+          return respond({
+              result:{
+                  protocolVersion: '2024-11-05',
+                  capabilities: { tools: { list: true, call: true } },
+              },
+              serverInfo: { name: 'composable-mcp', version: '0.1.0' },
+              // instructions: 'custom instructions for the client implementation, if needed'
+          });
+      }
+
+
+      if(method === 'tools/list'){
+          try{
+              let tools = tool_collation
+                  ? await fetchToolsForCollation(this.DIRECTUS_BASE_URL, token, tool_collation)
+                  : DEFAULT_TOOLS;
+
+              return respond({
+                  result:{
+                      tools: tools.map(t => ({
+                          name: t.name,
+                          title: t.title,
+                          description: t.description || '',
+                          inputSchema: t.inputSchema || { type: 'object', properties: {} },
+                      })),
+                  }
+              });
+          }catch (err){
+              return respond({
+                  error: {
+                      code: err.code || -32000,
+                      message: err.message || 'Error fetching tools',
+                      ...(err.status ? {httpStatus: err.status} : {})
+                  }
+              });
+          }
+      }
+
+      if(method === 'tools/call'){
+          let name = tool_collation ? `${tool_collation}__${params.name}` : params.name;
+          let op = new CallTool({
+              invocation:{
+                  name: '{{$trigger.name}}',
+                  arguments: '{{$trigger.arguments}}'
+              },
+          });
+          op.run_operations = run_operations;
+          op.get_fresh_vars = get_fresh_vars;
+
+          try{
+              // Collate the tool name with its collation if provided, using a double underscore as separator (e.g. "myCollation__myTool").
+
+              let result = await op.run({
+                  $env: this.cloned_environment, // protect the env from being overridden
+                  $accountability: $accountability,
+                  $trigger:{name, arguments: params} // the CallTool operation will use these to resolve the tool and its arguments when it runs.
+                  // this keeps the interpolation and validation logic centralized in the CallTool operation, instead of having to duplicate it here in the handler.
+                  // it also protects against double interpolation if we were to resolve the tool here and then pass it to the CallTool operation,
+                  // which would also try to resolve it again when it runs.
+              }, token)
+              return respond({
+                  result: {
+                      content:[{type:"text",text: typeof result.$last === "string" ? result.$last :JSON.stringify(result.$last) }],
+                      isError:result.$vars.isError || false
+                  }
+              });
+          }catch (err){
+              return respond({
+                  error: {
+                      code: err.code || -32000,
+                      message: err.message || 'Error calling tool',
+                      ...(err.status ? {httpStatus: err.status} : {})
+                  }
+              })
+          }
+      }
+
+        // If we reach here, the method is not recognized
+        return respond({
+            error: {
+                code: -32601,
+                message: `Method not found: ${method}`
+            }
+        });
+  };
 
 }

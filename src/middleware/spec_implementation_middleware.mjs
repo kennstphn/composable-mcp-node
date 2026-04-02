@@ -1,4 +1,4 @@
-export function spec_implementation(req, res, next){
+export function spec_implementation_middleware(req, res, next){
     let id = req.body?.id || null;
 
     res.mcp = {

@@ -23,3 +23,65 @@ export class ServerError extends JsonRpcError{
         this.code = code || this.code;
     }
 }
+
+// Base for all messages
+const JSONRPC_VERSION = { type: 'string', const: '2.0' };
+
+// 1. Request (including Notifications)
+export const REQUEST_SCHEMA = {
+    type: 'object',
+    properties: {
+        jsonrpc: JSONRPC_VERSION,
+        method: { type: 'string', minLength: 1 },
+        params: {
+            type: ['object', 'array', 'null'],
+            default: null   // or omit default if you prefer
+        },
+        id: {
+            type: ['string', 'number', 'null']   // null is allowed but rare for real requests
+        }
+    },
+    required: ['jsonrpc', 'method'],
+    additionalProperties: false   // or true if you want to be lenient
+};
+
+// 2. Response (success or error)
+export const RESPONSE_SCHEMA = {
+    type: 'object',
+    properties: {
+        jsonrpc: JSONRPC_VERSION,
+        result: {},                     // any JSON value (including null)
+        error: {
+            type: 'object',
+            properties: {
+                code: { type: 'integer' },
+                message: { type: 'string', minLength: 1 },
+                data: {}                    // any value (often object or primitive)
+            },
+            required: ['code', 'message'],
+            additionalProperties: false
+        },
+        id: {
+            type: ['string', 'number', 'null']
+        }
+    },
+    required: ['jsonrpc', 'id'],
+    additionalProperties: false,
+    // Important: exactly one of result or error must be present (not both)
+    oneOf: [
+        { required: ['result'] },
+        { required: ['error'] }
+    ]
+};
+
+export const MESSAGE_SCHEMA = {
+oneOf: [
+    REQUEST_SCHEMA,      // single request or notification
+    RESPONSE_SCHEMA,     // single response
+    {
+        type: 'array',
+        items: REQUEST_SCHEMA,   // batch of requests/notifications
+        minItems: 1
+    }
+]
+};

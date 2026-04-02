@@ -28,11 +28,10 @@ const SINGLE_INVOCATION_SCHEMA = {
       'in the tool using {{template}} syntax. For complex objects, build the object in a preceding run_script ' +
       'operation and reference it here via {{ $last }} or {{ a_previous_slug.some_prop }}.',
   properties:{
-    tool_collation: { type: 'string', description: 'The collation (namespace) the invoked tool belongs to' },
-    tool_name:      { type: 'string', description: 'The name of the tool to invoke' },
+    name:      { type: 'string', description: 'The name of the tool to invoke' },
     arguments:      { type: 'object', description: 'Input arguments to pass to the tool. send an empty object to omit arguments.' },
   },
-  required:['tool_collation', 'tool_name','arguments']
+  required:['name','arguments']
 }
 
 const INVOCATION_SCHEMA = {
@@ -527,9 +526,10 @@ export const TEST_COMPOSED_TOOL_TOOL = {
       slug: 'call_tool',
       type: 'call_tool',
       config: {
-        tool_collation: '{{$trigger.tool_collation}}',
-        tool_slug: '{{$trigger.tool_name}}',
-        tool_arguments: '{{$trigger.arguments}}',
+        invocation:{
+          name: '{{ $trigger.tool_collation }}__{{$trigger.tool_name}}',
+          arguments: '{{$trigger.arguments}}',
+        }
       }
     }
   ],

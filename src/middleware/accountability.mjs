@@ -1,13 +1,17 @@
 import {fetch_cacheable_data} from "../functions/fetch_cachable_data.mjs";
 
-async function loadAccountability(bearerToken, DIRECTUS_BASE_URL) {
+export async function loadAccountability(bearerToken, DIRECTUS_BASE_URL) {
 
     let url = new URL('/users/me', DIRECTUS_BASE_URL);
     url.searchParams.set('fields', '*,oauth.*');
 
     let cacheConfig = {
         key:{bearerToken,url: url.toString()},
-        duration_ms: 60 * 1000
+        // cache for 2 seconds, to avoid hitting Directus too often while a token is being verified by multiple concurrent
+        // requests (e.g. during startup or if the token just expired and is being refreshed). This is a best-effort
+        // optimization and does not guarantee that only one request will hit Directus, but it should help reduce the
+        // load in those scenarios.
+        duration_ms: 2000
     };
 
     return await fetch_cacheable_data(cacheConfig, async() => {

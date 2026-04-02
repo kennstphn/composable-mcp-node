@@ -1,5 +1,7 @@
 import {interpolateValue} from "../functions/interpolateValue.mjs";
 import {fetchToolsForCollation} from "../functions/get_tools_with_operations.mjs";
+import {DEFAULT_TOOLS} from "../directus/default_tools.mjs";
+import {validate_arguments} from "../functions/validate_arguments.mjs";
 
 /**
  * CallTool operation — calls another Directus-backed tool from within a flow.
@@ -50,7 +52,7 @@ export class CallTool {
 
     // dependency injection of run_operations and get_fresh_vars from the parent flow,
     // to allow the CallTool to execute the sub-tool's operations and to create a fresh $vars object for the sub-context
-    let {run_operations,get_fresh_vars} = this;
+    let {get_fresh_vars} = this;
 
 
     if (! iteration_mode){
@@ -71,52 +73,90 @@ export class CallTool {
 
 
 
-    // - build the sub-context with:
-    //   - $trigger seeded from the resolved input (after interpolation)
-    //   - $accountability and $env passed through unchanged from the parent context
-    let make_context = (input) => ({
-        $trigger: input,
-        $vars: get_fresh_vars(),
-        $accountability: context.$accountability,
-        $env: context.$env,
-    });
 
     if ( Array.isArray(invocation) ) {
-      return await this.invoke_tool_list(invocation, bearerToken, make_context, iteration_mode);
+      return await this.invoke_tool_list(invocation, bearerToken, iteration_mode);
     }
-    return await this.invoke_tool(invocation, bearerToken, make_context);
+    return await this.invoke_tool(invocation, bearerToken);
 
+  }
+
+  make_context(input, parentContext){
+    // - build the sub-context with:
+    //   - $trigger seeded from the resolved input (after interpolation)
+    //   - $accountability passed through unchanged from the parent context
+      //  - $env copied from the parent context to allow API calls, but we deep clone it to prevent accidental mutation of the parent context's $env by the sub-tool's flow
+      return {
+            $trigger: input,
+            $vars: this.get_fresh_vars(),
+            $accountability: parentContext.$accountability,
+            $env: JSON.parse(JSON.stringify(parentContext.$env)),
+      }
   }
 
   // - we trim the output down to just $last and $vars.isError to minimize the data passed back up to the parent flow,
   // and to ensure that any sensitive data in the sub-context is not exposed to the parent flow
   trim_output(o){
-    return {
-        $last: o.$last,
-        $vars:{isError: o.$vars.isError}
-    }
+
+      // we have to be careful to guard against an output that is malformed from an unanticipated thrown error
+      // if we have $vars.isError explicitly set to false, then we treat this as a non-error state; otherwise we default
+      // to true because the unstructured output is indicative of an error we didn't catch and transform
+      let is_error = true;
+      if(o.$vars && Object.hasOwn(o.$vars,'isError') && ! ( o.$vars.isError )) is_error = false;
+      return {
+          $last: o.$last || o.message || o,
+          $vars:{
+              isError: is_error
+          }
+      };
   }
 
 
-  async invoke_tool(invocation, bearerToken, make_context){
-    let {tool_collation, tool_name, arguments:args} = invocation;
-    if (!tool_collation || !tool_name) {
-        throw new Error("CallTool: invocation must include tool_collation and tool_name");
+  async invoke_tool(invocation, bearerToken){
+    let {name, arguments:args} = invocation;
+    // if we have "__" in the name, we can assume that the format is "collation__toolname", otherwise we can treat the
+    // whole name as the tool name and look for it in the built in tools
+    let tool_collation, tool_name;
+    if(name.includes('__')){
+        tool_collation = name.split('__')[0];
+        tool_name = name.replace(/^[^_]+__/, ''); // remove the collation and separator from the name to get the tool name
+    }else{
+        tool_collation = null;
+        tool_name = name;
     }
+
     if (args === undefined) {
         args = {};
     }
 
-    // fetch the target tool's details, including its operations and start_slug, to allow us to execute it
-    let tool = await fetchToolsForCollation(tool_collation, bearerToken, context.$env.DIRECTUS_BASE_URL)
-    let target_tool = tool.find(t => t.name === tool_name);
-    if (!target_tool) {
-        throw new Error(`CallTool: tool with name ${tool_name} not found in collation ${tool_collation}`);
+    let tool;
+    if(!tool_collation || tool_collation === ''){
+        tool = DEFAULT_TOOLS.find(t => t.name === tool_name);
+
+        if (!tool) throw new CallToolError(`CallTool: tool with name ${tool_name} not found in default tools`);
+
+    }else{
+        let tools = await fetchToolsForCollation(tool_collation, bearerToken, context.$env.DIRECTUS_BASE_URL);
+        let tool = tools.find(t => t.name === tool_name);
+
+        if ( !tool) throw new CallToolError(`CallTool: tool with name ${tool_name} not found in collation ${tool_collation}`);
+
     }
+
+    // compile the validation inputSchema and test against the invocation.arguments;
+    // if validation fails, throw an error to prevent executing the sub-tool with invalid input
+    if (tool.inputSchema) {
+        let {isValid, errors} = validate_arguments(tool.inputSchema, args, tool.name);
+        if (!isValid) {
+            // keep the same error format as the validation function for consistency, and to allow the parent flow to handle it if needed
+            throw new CallToolError(`argument validation failed for tool ${tool.name} with errors: ${JSON.stringify(errors)}`);
+        }
+    }
+
 
     // Execute the sub-tool's flow,
     // - Pass bearerToken through explicitly so that injection without exposure still works
-    let subContext = await this.run_operations(target_tool.operations, target_tool.start_slug, make_context(args), bearerToken);
+    let subContext = await this.run_operations(tool.operations, tool.start_slug, this.make_context(args), bearerToken);
 
     // make sure that we trigger the reject path if the sub-tool ended in an error state,
     // so that the parent tool can handle it if needed
@@ -127,25 +167,45 @@ export class CallTool {
     return this.trim_output(subContext)
   }
 
-  async invoke_tool_list(invocation_list, bearerToken, make_context, iteration_mode){
-    let results = [];
-    if(iteration_mode === 'parallel'){
-        let promises = invocation_list.map(invocation => this.invoke_tool(invocation, bearerToken, make_context));
-        results =  await Promise.all(promises);
-    }else{
-        for(let invocation of invocation_list){
-            let result = await this.invoke_tool(invocation, bearerToken, make_context);
-            results.push(this.trim_output(result));
+    async invoke_tool_list(invocation_list, bearerToken, iteration_mode) {
+        let results = [];
+
+        if (iteration_mode === 'parallel') {
+            const promises = invocation_list.map(invocation =>
+                this.invoke_tool(invocation, bearerToken, this.make_context)
+            );
+
+            const settled = await Promise.allSettled(promises);
+
+            results = settled.map(r =>
+                r.status === 'fulfilled'
+                    ? this.trim_output(r.value)
+                    : this.trim_output(r.reason)
+            );
+
+            if(results.every(r => r.$vars.isError)){
+                throw results;
+            }
+
+        } else {
+            for (let invocation of invocation_list) {
+                const result = await this.invoke_tool(invocation, bearerToken, this.make_context);
+                if(result.$vars.isError){
+                    throw this.trim_output(result)
+                }
+                results.push(this.trim_output(result));
+            }
         }
+
+        return results;
     }
 
-    results = results.map( o => this.trim_output(o));
+}
 
-    if(results.every(r => r.$vars.isError)){
-        throw results;
+class CallToolError extends Error {
+    constructor(message) {
+        super(message);
+        this.$last = message;
+        this.$vars = {isError: true};
     }
-    return results;
-
-  }
-
 }
