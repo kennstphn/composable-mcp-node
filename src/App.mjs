@@ -397,7 +397,7 @@ export class App {
               let result = await op.run({
                   $env: this.cloned_environment, // protect the env from being overridden
                   $accountability: $accountability,
-                  $trigger:{name, arguments: params} // the CallTool operation will use these to resolve the tool and its arguments when it runs.
+                  $trigger:{name, arguments: params.arguments} // the CallTool operation will use these to resolve the tool and its arguments when it runs.
                   // this keeps the interpolation and validation logic centralized in the CallTool operation, instead of having to duplicate it here in the handler.
                   // it also protects against double interpolation if we were to resolve the tool here and then pass it to the CallTool operation,
                   // which would also try to resolve it again when it runs.

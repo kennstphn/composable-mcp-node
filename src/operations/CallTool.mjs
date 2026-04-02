@@ -50,10 +50,6 @@ export class CallTool {
 
     let { invocation, iteration_mode } = this.config;
 
-    // dependency injection of run_operations and get_fresh_vars from the parent flow,
-    // to allow the CallTool to execute the sub-tool's operations and to create a fresh $vars object for the sub-context
-    let {get_fresh_vars} = this;
-
 
     if (! iteration_mode){
         iteration_mode = 'serial';
