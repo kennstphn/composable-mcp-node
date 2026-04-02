@@ -44,7 +44,7 @@ export async function fetchToolsForCollation(baseUrl, bearerToken, toolCollation
         if(data){
             // we also need to parse the inputSchema for each tool's operations, if present
             for (const tool of data) {
-                if(tool.inputSchema && typeof tool.inputSchema === 'string'){
+                if(tool && tool.inputSchema && typeof tool.inputSchema === 'string'){
                     try {
                         tool.inputSchema = JSON.parse(tool.inputSchema);
                     } catch (e) {
