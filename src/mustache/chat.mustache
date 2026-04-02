@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat — Composable MCP</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:        #0f1117;
+            --surface:   #1a1f2e;
+            --border:    #2d3748;
+            --muted:     #64748b;
+            --subtle:    #94a3b8;
+            --text:      #e2e8f0;
+            --accent:    #6366f1;
+            --accent-hv: #4f46e5;
+            --user-bg:   rgba(99,102,241,0.15);
+            --bot-bg:    #1e2433;
+            --error:     #ef4444;
+            --success:   #10b981;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ── Utilities ──────────────────────────────────────────── */
+        .hidden   { display: none !important; }
+        .sr-only  { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+
+        /* ── Auth screen ────────────────────────────────────────── */
+        #auth-screen {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+        }
+        .auth-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            width: 100%;
+            max-width: 420px;
+        }
+        .auth-card h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+        .auth-card .hint {
+            font-size: 0.82rem;
+            color: var(--subtle);
+            margin-bottom: 1.5rem;
+        }
+        .auth-card .hint a { color: var(--accent); text-decoration: none; }
+        .auth-card .hint a:hover { text-decoration: underline; }
+        .auth-error {
+            margin-top: 0.75rem;
+            font-size: 0.82rem;
+            color: var(--error);
+            min-height: 1.2em;
+        }
+
+        /* ── Shared form controls ───────────────────────────────── */
+        label {
+            display: block;
+            font-size: 0.78rem;
+            color: var(--subtle);
+            margin-bottom: 0.3rem;
+            margin-top: 0.75rem;
+        }
+        input, textarea, select {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.875rem;
+            padding: 0.5rem 0.75rem;
+            outline: none;
+            transition: border-color 0.15s;
+            font-family: inherit;
+        }
+        input:focus, textarea:focus { border-color: var(--accent); }
+        input[type="password"] { letter-spacing: 0.1em; }
+
+        button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: opacity 0.15s, background 0.15s;
+            font-family: inherit;
+        }
+        button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .btn-primary   { background: var(--accent);  color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: var(--accent-hv); }
+        .btn-secondary { background: var(--border);  color: var(--text); }
+        .btn-secondary:hover:not(:disabled) { background: #374151; }
+        .btn-ghost     { background: transparent; color: var(--subtle); padding: 0.35rem 0.6rem; }
+        .btn-ghost:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,0.05); }
+        .btn-danger    { background: transparent; color: var(--error); padding: 0.35rem 0.6rem; }
+        .btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.1); }
+        .btn-full { width: 100%; margin-top: 1rem; }
+        .btn-sm   { font-size: 0.78rem; padding: 0.3rem 0.65rem; }
+
+        /* ── Main shell ─────────────────────────────────────────── */
+        #app {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* ── Sidebar ────────────────────────────────────────────── */
+        #sidebar {
+            width: 260px;
+            min-width: 220px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .sidebar-header {
+            padding: 0.875rem 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .sidebar-header .logo {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .sidebar-header .conn-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--muted);
+            flex-shrink: 0;
+        }
+        .sidebar-header .conn-dot.online  { background: var(--success); }
+        .sidebar-header .conn-dot.offline { background: var(--error); }
+
+        .sidebar-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.75rem 0;
+        }
+        .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+        .sidebar-section {
+            padding: 0 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        .sidebar-section-title {
+            font-size: 0.68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            padding: 0.4rem 0.25rem 0.4rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .list-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.45rem 0.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: var(--subtle);
+            transition: background 0.12s, color 0.12s;
+            user-select: none;
+        }
+        .list-item:hover  { background: rgba(255,255,255,0.05); color: var(--text); }
+        .list-item.active { background: rgba(99,102,241,0.18);  color: var(--text); }
+        .list-item .item-icon {
+            font-size: 0.8rem;
+            flex-shrink: 0;
+            width: 18px;
+            text-align: center;
+        }
+        .list-item .item-label {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .list-item .item-actions {
+            display: none;
+            gap: 0.15rem;
+        }
+        .list-item:hover .item-actions { display: flex; }
+        .list-item .item-actions button { padding: 0.15rem 0.3rem; font-size: 0.7rem; }
+
+        .empty-hint {
+            font-size: 0.78rem;
+            color: var(--muted);
+            text-align: center;
+            padding: 0.75rem 0.25rem;
+        }
+
+        /* Agent inline form */
+        .agent-form {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.875rem;
+            margin: 0.25rem 0 0.5rem;
+        }
+        .agent-form label { margin-top: 0.5rem; }
+        .agent-form label:first-of-type { margin-top: 0; }
+        .agent-form .form-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+        .agent-form .form-actions button { flex: 1; }
+
+        /* ── Chat area ──────────────────────────────────────────── */
+        #chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--bg);
+        }
+
+        #chat-header {
+            padding: 0.875rem 1.25rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-shrink: 0;
+        }
+        #chat-header .agent-avatar {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            background: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        #chat-header .header-info { flex: 1; min-width: 0; }
+        #chat-header .header-name {
+            font-size: 0.95rem;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #chat-header .header-model {
+            font-size: 0.75rem;
+            color: var(--muted);
+        }
+        #new-chat-btn { flex-shrink: 0; }
+
+        /* Active conversation view */
+        #chat-view {
+            flex: 1;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #chat-view:not(.hidden) { display: flex; }
+
+        /* Empty / placeholder state */
+        #chat-placeholder {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            color: var(--muted);
+            padding: 2rem;
+        }
+        #chat-placeholder .placeholder-icon { font-size: 2.5rem; }
+        #chat-placeholder p { font-size: 0.9rem; text-align: center; }
+
+        /* Messages */
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        #messages::-webkit-scrollbar { width: 4px; }
+        #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+        .msg {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+            max-width: 72%;
+        }
+        .msg.user  { align-self: flex-end; align-items: flex-end; }
+        .msg.bot   { align-self: flex-start; align-items: flex-start; }
+        .msg.error { align-self: center; align-items: center; max-width: 90%; }
+
+        .msg-role {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .msg-bubble {
+            padding: 0.65rem 0.9rem;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .msg.user  .msg-bubble { background: var(--user-bg); border: 1px solid rgba(99,102,241,0.3); }
+        .msg.bot   .msg-bubble { background: var(--bot-bg);  border: 1px solid var(--border); }
+        .msg.error .msg-bubble { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4); color: var(--error); font-size: 0.82rem; }
+
+        .msg-thinking .msg-bubble {
+            color: var(--muted);
+            font-style: italic;
+        }
+        .msg-thinking .dots::after {
+            content: '...';
+            animation: dots 1.2s steps(4, end) infinite;
+        }
+        @keyframes dots {
+            0%   { content: ''; }
+            25%  { content: '.'; }
+            50%  { content: '..'; }
+            75%  { content: '...'; }
+        }
+
+        /* Input row */
+        #input-row {
+            padding: 0.875rem 1.25rem 1rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-end;
+            flex-shrink: 0;
+        }
+        #message-input {
+            flex: 1;
+            resize: none;
+            min-height: 44px;
+            max-height: 160px;
+            line-height: 1.5;
+            padding: 0.6rem 0.75rem;
+            overflow-y: auto;
+        }
+        #send-btn { flex-shrink: 0; height: 44px; padding: 0 1.1rem; }
+
+        /* Disconnect banner */
+        #disconnected-banner {
+            background: rgba(239,68,68,0.12);
+            border-bottom: 1px solid rgba(239,68,68,0.3);
+            color: var(--error);
+            font-size: 0.82rem;
+            padding: 0.5rem 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        #disconnected-banner button { flex-shrink: 0; font-size: 0.78rem; }
+
+        /* ── Responsive ─────────────────────────────────────────── */
+        @media (max-width: 600px) {
+            #sidebar { width: 200px; min-width: 180px; }
+        }
+        @media (max-width: 480px) {
+            #sidebar { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ══ Auth Screen (checking / not logged in) ════════════════════════════════ -->
+<div id="auth-screen">
+    <!-- Checking state -->
+    <div id="auth-checking" class="auth-card" style="text-align:center;">
+        <p class="hint" style="margin-bottom:0;">Checking authentication…</p>
+    </div>
+
+    <!-- Not logged in state -->
+    <div id="auth-login" class="auth-card hidden">
+        <h1>Composable MCP Chat</h1>
+        <p class="hint">
+            You are not logged in. Please sign in via Directus to continue.
+        </p>
+        <a class="btn-primary btn-full" href="/admin/login"
+           style="display:flex;text-decoration:none;margin-top:1rem;">
+            Sign in ↗
+        </a>
+    </div>
+</div>
+
+<!-- ══ Main App ═════════════════════════════════════════════════════════════ -->
+<div id="app" class="hidden">
+
+    <!-- Disconnected banner -->
+    <div id="disconnected-banner" class="hidden">
+        ⚠ WebSocket disconnected.
+        <button class="btn-secondary btn-sm" onclick="reconnect()">Reconnect</button>
+    </div>
+
+    <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+    <aside id="sidebar">
+        <div class="sidebar-header">
+            <span class="logo">Composable MCP</span>
+            <span class="conn-dot" id="conn-dot" title="Connecting…"></span>
+        </div>
+
+        <div class="sidebar-scroll">
+
+            <!-- Agents section -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">
+                    Agents
+                    <button class="btn-ghost btn-sm" id="add-agent-btn" onclick="toggleAgentForm()" title="Add agent">＋</button>
+                </div>
+
+                <!-- Inline agent form -->
+                <div id="agent-form" class="agent-form hidden">
+                    <label for="af-name">Name</label>
+                    <input id="af-name" placeholder="My Assistant" />
+
+                    <label for="af-model">Model</label>
+                    <input id="af-model" placeholder="gpt-4o" />
+
+                    <label for="af-endpoint">Endpoint URL</label>
+                    <input id="af-endpoint" placeholder="https://api.openai.com/v1/responses" />
+
+                    <label for="af-token">Access Token</label>
+                    <input id="af-token" type="password" placeholder="sk-…" autocomplete="off" />
+
+                    <div class="form-actions">
+                        <button class="btn-secondary btn-sm" onclick="cancelAgentForm()">Cancel</button>
+                        <button class="btn-primary btn-sm" onclick="saveAgent()">Save</button>
+                    </div>
+                    <div id="af-error" class="auth-error"></div>
+                </div>
+
+                <div id="agent-list">
+                    <div class="empty-hint">No agents yet.</div>
+                </div>
+            </div>
+
+            <!-- Conversations section -->
+            <div class="sidebar-section" id="conversations-section">
+                <div class="sidebar-section-title">
+                    Conversations
+                    <button class="btn-ghost btn-sm" onclick="newConversation()" id="new-conv-btn"
+                            title="New conversation" disabled>＋</button>
+                </div>
+                <div id="conversation-list">
+                    <div class="empty-hint">Select an agent.</div>
+                </div>
+            </div>
+
+        </div><!-- /sidebar-scroll -->
+    </aside>
+
+    <!-- ── Chat area ───────────────────────────────────────────────────── -->
+    <div id="chat-area">
+
+        <!-- Placeholder shown when no conversation is active -->
+        <div id="chat-placeholder">
+            <div class="placeholder-icon">💬</div>
+            <p>Select an agent in the sidebar and start a new conversation.</p>
+        </div>
+
+        <!-- Active conversation view (hidden until a conversation is selected) -->
+        <div id="chat-view" class="hidden">
+
+            <div id="chat-header">
+                <div class="agent-avatar" id="agent-avatar">?</div>
+                <div class="header-info">
+                    <div class="header-name" id="header-agent-name">—</div>
+                    <div class="header-model" id="header-agent-model"></div>
+                </div>
+                <button class="btn-secondary btn-sm" id="new-chat-btn" onclick="newConversation()">＋ New chat</button>
+            </div>
+
+            <div id="messages"></div>
+
+            <div id="input-row">
+                <textarea id="message-input"
+                          placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
+                          rows="1"
+                          onkeydown="handleInputKey(event)"
+                          oninput="autoGrow(this)"></textarea>
+                <button class="btn-primary" id="send-btn" onclick="sendMessage()">Send ↑</button>
+            </div>
+
+        </div>
+
+    </div><!-- /chat-area -->
+</div><!-- /app -->
+
+<script type="module">
+import { ChatApp }     from '/ChatApp.mjs';
+import { ChatStorage } from '/ChatStorage.mjs';
+
+// ── Globals ─────────────────────────────────────────────────────────────────
+const app = new ChatApp();
+
+// In-memory message log for the current conversation view
+let messages = [];
+// Track the agent being edited (for the agent form)
+let editingAgentId = null;
+
+// DIRECTUS_BASE_URL is baked in at build time by Mustache
+const DIRECTUS_BASE_URL = '{{ $env.DIRECTUS_BASE_URL }}';
+
+// ── Boot — check session via Directus /users/me ───────────────────────────────
+(async function init() {
+    try {
+        const res = await fetch(`${DIRECTUS_BASE_URL}/users/me`, { credentials: 'include' });
+        if (res.ok) {
+            // Authenticated — hide auth screen, show app, connect WS
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('app').classList.remove('hidden');
+            app.connect();
+        } else {
+            showLoginScreen();
+        }
+    } catch {
+        showLoginScreen();
+    }
+})();
+
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+function showLoginScreen() {
+    document.getElementById('auth-checking').classList.add('hidden');
+    document.getElementById('auth-login').classList.remove('hidden');
+}
+
+app.addEventListener('connected', async () => {
+    document.getElementById('disconnected-banner').classList.add('hidden');
+    setConnDot('online');
+    await refreshAgentList();
+});
+
+app.addEventListener('disconnected', () => {
+    setConnDot('offline');
+    if (!document.getElementById('app').classList.contains('hidden')) {
+        document.getElementById('disconnected-banner').classList.remove('hidden');
+    }
+});
+
+app.addEventListener('ws-error', () => {
+    setConnDot('offline');
+    if (!document.getElementById('app').classList.contains('hidden')) {
+        document.getElementById('disconnected-banner').classList.remove('hidden');
+    }
+});
+
+window.reconnect = async function reconnect() {
+    document.getElementById('disconnected-banner').classList.add('hidden');
+    try {
+        const res = await fetch(`${DIRECTUS_BASE_URL}/users/me`, { credentials: 'include' });
+        if (res.ok) {
+            app.connect();
+        } else {
+            document.getElementById('app').classList.add('hidden');
+            document.getElementById('auth-screen').classList.remove('hidden');
+            showLoginScreen();
+        }
+    } catch {
+        document.getElementById('app').classList.add('hidden');
+        document.getElementById('auth-screen').classList.remove('hidden');
+        showLoginScreen();
+    }
+};
+
+// ── Connection dot ────────────────────────────────────────────────────────────
+function setConnDot(state) {
+    const dot = document.getElementById('conn-dot');
+    dot.className = 'conn-dot ' + state;
+    dot.title = state === 'online' ? 'Connected' : state === 'offline' ? 'Disconnected' : 'Connecting…';
+}
+
+// ── Agent form ────────────────────────────────────────────────────────────────
+window.toggleAgentForm = function toggleAgentForm(agentId, event) {
+    if (event) event.stopPropagation();
+    const form = document.getElementById('agent-form');
+    const isHidden = form.classList.contains('hidden');
+    if (!isHidden && editingAgentId === agentId) {
+        cancelAgentForm();
+        return;
+    }
+    editingAgentId = agentId ?? null;
+    if (agentId) {
+        // Pre-fill for editing
+        app.storage.getAgent(agentId).then(agent => {
+            if (!agent) return;
+            document.getElementById('af-name').value     = agent.name;
+            document.getElementById('af-model').value    = agent.model;
+            document.getElementById('af-endpoint').value = agent.endpoint;
+            document.getElementById('af-token').value    = agent.access_token;
+            form.classList.remove('hidden');
+        });
+    } else {
+        clearAgentForm();
+        form.classList.remove('hidden');
+    }
+};
+
+window.cancelAgentForm = function cancelAgentForm() {
+    document.getElementById('agent-form').classList.add('hidden');
+    clearAgentForm();
+    editingAgentId = null;
+};
+
+function clearAgentForm() {
+    ['af-name', 'af-model', 'af-endpoint', 'af-token'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    document.getElementById('af-error').textContent = '';
+}
+
+window.saveAgent = async function saveAgent() {
+    const name         = document.getElementById('af-name').value.trim();
+    const model        = document.getElementById('af-model').value.trim();
+    const endpoint     = document.getElementById('af-endpoint').value.trim();
+    const access_token = document.getElementById('af-token').value.trim();
+
+    const errEl = document.getElementById('af-error');
+    if (!name || !model || !endpoint) {
+        errEl.textContent = 'Name, model, and endpoint are required.';
+        return;
+    }
+    errEl.textContent = '';
+
+    await app.storage.saveAgent({ id: editingAgentId ?? undefined, name, model, endpoint, access_token });
+    cancelAgentForm();
+    await refreshAgentList();
+};
+
+window.deleteAgent = async function deleteAgent(id, event) {
+    event.stopPropagation();
+    if (!confirm('Delete this agent and all its conversations?')) return;
+    if (app.currentAgent?.id === id) {
+        clearChatView();
+        app.currentAgent        = null;
+        app.currentConversation = null;
+    }
+    await app.storage.deleteAgent(id);
+    await refreshAgentList();
+};
+
+// ── Agent list ────────────────────────────────────────────────────────────────
+async function refreshAgentList() {
+    const agents = await app.storage.getAgents();
+    const list   = document.getElementById('agent-list');
+
+    if (!agents.length) {
+        list.innerHTML = '<div class="empty-hint">No agents yet.</div>';
+        return;
+    }
+
+    list.innerHTML = agents.map(a => `
+        <div class="list-item ${app.currentAgent?.id === a.id ? 'active' : ''}"
+             onclick="selectAgent('${esc(a.id)}')">
+            <span class="item-icon">🤖</span>
+            <span class="item-label">${esc(a.name)}</span>
+            <span class="item-actions">
+                <button class="btn-ghost btn-sm" onclick="toggleAgentForm('${esc(a.id)}', event)" title="Edit">✎</button>
+                <button class="btn-danger btn-sm" onclick="deleteAgent('${esc(a.id)}', event)" title="Delete">✕</button>
+            </span>
+        </div>
+    `).join('');
+}
+
+// ── Select agent ──────────────────────────────────────────────────────────────
+window.selectAgent = async function selectAgent(agentId) {
+    await app.selectAgent(agentId);
+    await refreshAgentList();
+    await refreshConversationList();
+    document.getElementById('new-conv-btn').disabled = false;
+    clearChatView();
+};
+
+// ── Conversation list ─────────────────────────────────────────────────────────
+async function refreshConversationList() {
+    const list = document.getElementById('conversation-list');
+
+    if (!app.currentAgent) {
+        list.innerHTML = '<div class="empty-hint">Select an agent.</div>';
+        return;
+    }
+
+    const convs = await app.storage.getConversationsForAgent(app.currentAgent.id);
+
+    if (!convs.length) {
+        list.innerHTML = '<div class="empty-hint">No conversations yet.</div>';
+        return;
+    }
+
+    list.innerHTML = convs.map((c, i) => `
+        <div class="list-item ${app.currentConversation?.id === c.id ? 'active' : ''}"
+             onclick="openConversation('${esc(c.id)}')">
+            <span class="item-icon">💬</span>
+            <span class="item-label">Conversation ${convs.length - i}</span>
+            <span class="item-actions">
+                <button class="btn-danger btn-sm" onclick="deleteConversation('${esc(c.id)}', event)" title="Delete">✕</button>
+            </span>
+        </div>
+    `).join('');
+}
+
+window.newConversation = async function newConversation() {
+    if (!app.currentAgent) return;
+    await app.startConversation(app.currentAgent.id);
+    messages = [];
+    openChatView();
+    await refreshConversationList();
+};
+
+window.openConversation = async function openConversation(id) {
+    await app.selectConversation(id);
+    messages = [];
+    openChatView();
+    await refreshConversationList();
+    await refreshAgentList();
+};
+
+window.deleteConversation = async function deleteConversation(id, event) {
+    event.stopPropagation();
+    if (!confirm('Delete this conversation?')) return;
+    if (app.currentConversation?.id === id) {
+        clearChatView();
+        app.currentConversation = null;
+    }
+    await app.storage.deleteConversation(id);
+    await refreshConversationList();
+};
+
+// ── Chat view ─────────────────────────────────────────────────────────────────
+function openChatView() {
+    document.getElementById('chat-placeholder').classList.add('hidden');
+    const view = document.getElementById('chat-view');
+    view.classList.remove('hidden');
+
+    const agent = app.currentAgent;
+    document.getElementById('agent-avatar').textContent   = (agent?.name?.[0] ?? '?').toUpperCase();
+    document.getElementById('header-agent-name').textContent  = agent?.name ?? '—';
+    document.getElementById('header-agent-model').textContent = agent?.model ?? '';
+
+    renderMessages();
+    document.getElementById('message-input').focus();
+}
+
+function clearChatView() {
+    document.getElementById('chat-placeholder').classList.remove('hidden');
+    const view = document.getElementById('chat-view');
+    view.classList.add('hidden');
+    messages = [];
+}
+
+function renderMessages() {
+    const container = document.getElementById('messages');
+    container.innerHTML = messages.map(m => buildMsgHTML(m)).join('');
+    container.scrollTop = container.scrollHeight;
+}
+
+function addMessage(role, text, extra) {
+    const msg = { role, text, ...extra };
+    messages.push(msg);
+    const container = document.getElementById('messages');
+    const div       = document.createElement('div');
+    div.innerHTML   = buildMsgHTML(msg);
+    container.appendChild(div.firstElementChild);
+    container.scrollTop = container.scrollHeight;
+    return msg;
+}
+
+function buildMsgHTML(msg) {
+    const cls = msg.role === 'user' ? 'user' : msg.role === 'error' ? 'error' : 'bot';
+    const label = msg.role === 'user' ? 'You' : msg.role === 'error' ? 'Error' : (app.currentAgent?.name ?? 'Assistant');
+    return `
+        <div class="msg ${cls} ${msg.thinking ? 'msg-thinking' : ''}">
+            <div class="msg-role">${esc(label)}</div>
+            <div class="msg-bubble">${msg.thinking ? '<span class="dots"></span>' : esc(msg.text)}</div>
+        </div>
+    `;
+}
+
+// ── Send message ──────────────────────────────────────────────────────────────
+window.sendMessage = async function sendMessage() {
+    const input = document.getElementById('message-input');
+    const text  = input.value.trim();
+    if (!text) return;
+    if (!app.connected) {
+        addMessage('error', 'Not connected. Please reconnect.');
+        return;
+    }
+    if (!app.currentConversation) {
+        addMessage('error', 'Start a conversation first.');
+        return;
+    }
+
+    input.value = '';
+    autoGrow(input);
+
+    addMessage('user', text);
+
+    const sendBtn = document.getElementById('send-btn');
+    sendBtn.disabled = true;
+    input.disabled   = true;
+
+    // Show a thinking indicator
+    const thinkingMsg = addMessage('bot', '', { thinking: true });
+
+    try {
+        const response = await app.sendMessage(text);
+
+        // Remove thinking indicator
+        removeLastThinking();
+
+        // Extract text output from V1 response format
+        const replyText = extractResponseText(response);
+        addMessage('bot', replyText);
+
+    } catch (err) {
+        removeLastThinking();
+        addMessage('error', err.message ?? 'An error occurred.');
+    } finally {
+        sendBtn.disabled = false;
+        input.disabled   = false;
+        input.focus();
+    }
+};
+
+function removeLastThinking() {
+    const container = document.getElementById('messages');
+    const items     = container.querySelectorAll('.msg-thinking');
+    items[items.length - 1]?.remove();
+    messages = messages.filter(m => !m.thinking);
+}
+
+/** Extract display text from a V1 responses API response object. */
+function extractResponseText(response) {
+    if (!response) return '(empty response)';
+    // V1 responses API: output is an array of content blocks
+    if (Array.isArray(response.output)) {
+        const parts = [];
+        for (const block of response.output) {
+            if (block.type === 'message' && Array.isArray(block.content)) {
+                for (const c of block.content) {
+                    if (c.type === 'output_text' && c.text) parts.push(c.text);
+                    else if (c.type === 'text'        && c.text) parts.push(c.text);
+                }
+            } else if (block.type === 'text' && block.text) {
+                parts.push(block.text);
+            }
+        }
+        if (parts.length) return parts.join('\n');
+    }
+    // Fallback: plain text field
+    if (typeof response.output_text === 'string') return response.output_text;
+    if (typeof response.text        === 'string') return response.text;
+    // Last resort
+    return JSON.stringify(response, null, 2);
+}
+
+// ── Input helpers ─────────────────────────────────────────────────────────────
+window.handleInputKey = function handleInputKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+};
+
+window.autoGrow = function autoGrow(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+</script>
+</body>
+</html>
