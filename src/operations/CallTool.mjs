@@ -70,10 +70,17 @@ export class CallTool {
 
 
 
-    if ( Array.isArray(invocation) ) {
-      return await this.invoke_tool_list(invocation, bearerToken, iteration_mode);
+    try{
+        if ( Array.isArray(invocation) ) {
+          return await this.invoke_tool_list(invocation, bearerToken, iteration_mode);
+        }
+        return await this.invoke_tool(invocation, bearerToken);
+    } catch (err){
+        if(err instanceof CallToolError){
+            throw err;
+        }
+        throw new CallToolError(err);
     }
-    return await this.invoke_tool(invocation, bearerToken);
 
   }
 
@@ -152,6 +159,7 @@ export class CallTool {
 
     // Execute the sub-tool's flow,
     // - Pass bearerToken through explicitly so that injection without exposure still works
+    // run_operations(operations, start_slug, initialContext = {}, bearerToken = null)
     let subContext = await this.run_operations(tool.operations, tool.start_slug, this.make_context(args), bearerToken);
 
     // make sure that we trigger the reject path if the sub-tool ended in an error state,
