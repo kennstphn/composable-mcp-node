@@ -73,11 +73,11 @@ export class CallTool {
     // Support standard config format: { tool_collation, tool_name, tool_arguments }.
     // Interpolate each field separately, then combine into the invocation object.
     if (invocation === undefined) {
-        const collation = interpolateValue(this.config.tool_collation || null, context);
-        const name_part = interpolateValue(this.config.tool_name || null, context);
-        const args      = interpolateValue(this.config.tool_arguments || {}, context);
+        const collation  = interpolateValue(this.config.tool_collation || null, context);
+        const tool_name  = interpolateValue(this.config.tool_name || null, context);
+        const args       = interpolateValue(this.config.tool_arguments || {}, context);
         invocation = {
-            name:      collation ? `${collation}__${name_part}` : name_part,
+            name:      collation ? `${collation}__${tool_name}` : tool_name,
             arguments: args,
         };
         iteration_mode = interpolateValue(iteration_mode, context);

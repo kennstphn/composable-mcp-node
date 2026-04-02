@@ -806,21 +806,29 @@ export const MESSAGE_V1_RESPONSES_TOOL = {
       code: [
         'module.exports = async function(data) {',
         '  const response = data.$last;',
-        '  const base_request = (data.append_result && data.append_result.request)',
-        '    || data.init.request;',
+        // Use the most recent request: append_result.request (from the previous turn) takes
+        // priority over init.request (the original request), since append_result updates it
+        // with tool outputs before looping back to call_api.
+        '  const base_request = data.append_result?.request ?? data.init.request;',
         '  const function_calls = (response.output || []).filter(o => o.type === "function_call");',
         '  if (function_calls.length === 0) {',
+        // Throw a plain object as a signal to the reject path (finalize).
+        // run_operations routes thrown plain objects unchanged via the reject chain.
         '    throw { done: true, response };',
         '  }',
         '  const request = {',
         '    ...base_request,',
         '    input: [...base_request.input, ...response.output],',
         '  };',
-        '  const tool_calls = function_calls.map(fc => ({',
-        '    call_id: fc.call_id,',
-        '    name: fc.name,',
-        '    arguments: typeof fc.arguments === "string" ? JSON.parse(fc.arguments) : fc.arguments,',
-        '  }));',
+        '  const tool_calls = function_calls.map(fc => {',
+        '    let args = fc.arguments;',
+        '    if (typeof args === "string") {',
+        '      try { args = JSON.parse(args); } catch (e) {',
+        '        throw new Error("Failed to parse arguments for function call \\"" + fc.name + "\\": " + e.message);',
+        '      }',
+        '    }',
+        '    return { call_id: fc.call_id, name: fc.name, arguments: args };',
+        '  });',
         '  return { tool_calls, request };',
         '};',
       ].join('\n'),
@@ -857,6 +865,9 @@ export const MESSAGE_V1_RESPONSES_TOOL = {
         '    ],',
         '  };',
         '  if (remaining.length > 0) {',
+        // Throw a plain object as a signal to the reject path (prepare_call).
+        // run_operations routes thrown plain objects unchanged via the reject chain,
+        // allowing prepare_call to process the remaining tool calls.
         '    throw { request: updated_request, tool_calls: remaining };',
         '  }',
         '  return { request: updated_request };',
