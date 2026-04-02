@@ -319,7 +319,7 @@ export class App {
       if(id === undefined || id === null){
 
           // fire-and-forget notification handling (e.g. for client events that don't require a response, like "notifications/initialized")
-          this.handle_jsonrpc_notification(...arguments);
+          this.handle_jsonrpc_notification(method,params, tool_collation, token)
           return; // no response for notifications
       }
 
