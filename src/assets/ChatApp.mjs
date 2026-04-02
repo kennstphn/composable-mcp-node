@@ -48,7 +48,7 @@ export class ChatApp extends EventTarget {
         if (this.#ws) this.disconnect();
 
         const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-        const url   = `${proto}://${location.host}/ws/chat`;
+        const url   = `${proto}://${location.host}${this.env.ROUTES_PREFIX}/ws/chat`;
 
         this.#ws = new WebSocket(url);
         this.#ws.addEventListener('open',    ()  => this.dispatchEvent(new Event('connected')));
