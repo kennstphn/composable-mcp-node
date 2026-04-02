@@ -114,7 +114,7 @@ export const CREATE_TOOL_TOOL = {
       slug: 'post_tool',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -157,7 +157,7 @@ export const ADD_RUN_SCRIPT_OPERATION_TOOL = {
       slug: 'post_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -232,7 +232,7 @@ export const ADD_FETCH_REQUEST_OPERATION_TOOL = {
       slug: 'post_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -295,7 +295,7 @@ module.exports = async function(data) {
       slug: 'patch_tool',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools/{{$trigger.tool_id}}',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools/{{$trigger.tool_id}}',
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -351,7 +351,7 @@ export const EDIT_RUN_SCRIPT_OPERATION_TOOL = {
       slug: 'patch_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -417,7 +417,7 @@ export const EDIT_FETCH_REQUEST_OPERATION_TOOL = {
       slug: 'patch_operation',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -443,7 +443,7 @@ export const LIST_COLLATIONS_TOOL = {
       slug: 'fetch_collations',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools?groupBy[]=tool_collation&fields=tool_collation',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools?groupBy[]=tool_collation&fields=tool_collation',
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -490,7 +490,7 @@ export const LIST_COMPOSED_TOOLS_TOOL = {
       slug: 'fetch_tools',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{$trigger.tool_collation}}&fields=id,title,name,description,tool_collation,inputSchema',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools?filter[tool_collation][_eq]={{$trigger.tool_collation}}&fields=id,title,name,description,tool_collation,inputSchema',
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -572,7 +572,7 @@ export const DELETE_COMPOSED_TOOL_TOOL = {
       slug: 'delete_tool',
       type: 'fetch_request',
       config: {
-        url: '{{$env.DIRECTUS_BASE_URL}}/items/tools/{{$trigger.tool_id}}',
+        url: '{{$trigger.DIRECTUS_BASE_URL}}/items/tools/{{$trigger.tool_id}}',
         method: 'DELETE',
         headers: {},
       },
@@ -607,7 +607,7 @@ export const DELETE_OPERATION_TOOL ={
     // first, get the operation to check if it exists, and to make sure that it's parent tool is the one we expect
     // (avoid deleting the wrong operation when given a wrong ID)
     operation('fetch_operation','fetch_request',{
-      url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}?fields=tool.name,tool.tool_collation',
+      url:'{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}?fields=tool.name,tool.tool_collation',
     },'check_tool',null),
 
     // check that the operation's parent tool matches the expected tool from the input
@@ -621,7 +621,7 @@ export const DELETE_OPERATION_TOOL ={
           }`
     },'delete_operation',null),
     operation('delete_operation','fetch_request',{
-      url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
+      url:'{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
       method:'DELETE',
     },"message_success",null),
     operation('message_success','run_script',{code:"module.exports = () => 'Operation ' + {{$trigger.operation_id}} + ' deleted successfully.';"},null,null)
@@ -665,7 +665,7 @@ export const ADD_CALL_TOOL_OPERATION_TOOL = {
         }
         `},'post_operation',null),
     operation('post_operation','fetch_request',{
-      url: '{{$env.DIRECTUS_BASE_URL}}/items/operations',
+      url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -697,10 +697,11 @@ export const EDIT_CALL_TOOL_OPERATION_TOOL = {
     },
     required: ['operation_id', 'tool_id'],
   },
+  start_slug: 'get_operation',
   operations:[
     // first, get the operation to check if it exists, and to make sure that it's parent tool is the one we expect
     operation('get_operation','fetch_request',{
-      url:'{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}?fields=tool,id',
+      url:'{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}?fields=tool,id',
     },'validate_tool_id'),
 
     // validate that the operation's parent tool matches the expected tool from the input (avoid editing the wrong operation when given a wrong ID)
@@ -732,7 +733,7 @@ export const EDIT_CALL_TOOL_OPERATION_TOOL = {
         }
         `},'patch_operation'),
     operation('patch_operation','fetch_request',{
-      url: '{{$env.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
+      url: '{{$trigger.DIRECTUS_BASE_URL}}/items/operations/{{$trigger.operation_id}}',
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -741,6 +742,137 @@ export const EDIT_CALL_TOOL_OPERATION_TOOL = {
     })
   ]
 }
+
+// ─── message_v1_responses ─────────────────────────────────────────────────────
+// Implements an OpenAI Responses API (/v1/responses) agentic loop with tool
+// calling support.  The tool accepts a request body, an endpoint URL, a bearer
+// token, and an optional tool_collation.  It calls the API, dispatches any
+// tool calls via the call_tool operation, then feeds the results back for
+// another API turn – repeating until the model returns a non-tool-call output.
+
+export const MESSAGE_V1_RESPONSES_TOOL = {
+  name: 'message_v1_responses',
+  title: 'Message (v1/responses)',
+  description:
+    'Calls an OpenAI-compatible /v1/responses endpoint and executes any tool ' +
+    'calls returned by the model in a loop until a final response is produced.',
+  inputSchema: {
+    type: 'object',
+    required: ['request', 'endpoint', 'token'],
+    properties: {
+      request: {
+        type: 'object',
+        description: 'The request body to send to the /v1/responses endpoint.',
+        required: ['model'],
+        properties: {
+          model: { type: 'string', description: 'Model identifier (e.g. gpt-4o)' },
+        },
+      },
+      endpoint: {
+        type: 'string',
+        description: 'Base URL of the /v1/responses endpoint (e.g. https://api.openai.com)',
+      },
+      token: {
+        type: 'string',
+        description: 'Bearer token used to authenticate with the endpoint.',
+      },
+      tool_collation: {
+        type: 'string',
+        description: 'Optional tool collation to use when resolving tool calls from the model.',
+      },
+    },
+  },
+  start_slug: 'init',
+  operations: [
+    operation('init', 'run_script', {
+      code: [
+        'module.exports = async function(data) {',
+        '  return { request: data.$trigger.request };',
+        '};',
+      ].join('\n'),
+    }, 'call_api', null),
+
+    operation('call_api', 'fetch_request', {
+      url: '{{$trigger.endpoint}}',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer {{$trigger.token}}',
+      },
+      body: '{{$last.request}}',
+    }, 'extract_calls', null),
+
+    operation('extract_calls', 'run_script', {
+      code: [
+        'module.exports = async function(data) {',
+        '  const response = data.$last;',
+        '  const base_request = (data.append_result && data.append_result.request)',
+        '    || data.init.request;',
+        '  const function_calls = (response.output || []).filter(o => o.type === "function_call");',
+        '  if (function_calls.length === 0) {',
+        '    throw { done: true, response };',
+        '  }',
+        '  const request = {',
+        '    ...base_request,',
+        '    input: [...base_request.input, ...response.output],',
+        '  };',
+        '  const tool_calls = function_calls.map(fc => ({',
+        '    call_id: fc.call_id,',
+        '    name: fc.name,',
+        '    arguments: typeof fc.arguments === "string" ? JSON.parse(fc.arguments) : fc.arguments,',
+        '  }));',
+        '  return { tool_calls, request };',
+        '};',
+      ].join('\n'),
+    }, 'prepare_call', 'finalize'),
+
+    operation('prepare_call', 'run_script', {
+      code: [
+        'module.exports = async function(data) {',
+        '  const { tool_calls, request } = data.$last;',
+        '  const [next_call, ...remaining] = tool_calls;',
+        '  return { next_call, remaining, request };',
+        '};',
+      ].join('\n'),
+    }, 'invoke_tool', null),
+
+    operation('invoke_tool', 'call_tool', {
+      tool_collation: '{{$trigger.tool_collation}}',
+      tool_name:      '{{prepare_call.next_call.name}}',
+      tool_arguments: '{{prepare_call.next_call.arguments}}',
+    }, 'append_result', null),
+
+    operation('append_result', 'run_script', {
+      code: [
+        'module.exports = async function(data) {',
+        '  const invoke_result = data.$last;',
+        '  const { request, next_call, remaining } = data.prepare_call;',
+        '  const raw = invoke_result.$last;',
+        '  const output = typeof raw === "string" ? raw : JSON.stringify(raw);',
+        '  const updated_request = {',
+        '    ...request,',
+        '    input: [',
+        '      ...request.input,',
+        '      { type: "function_call_output", call_id: next_call.call_id, output },',
+        '    ],',
+        '  };',
+        '  if (remaining.length > 0) {',
+        '    throw { request: updated_request, tool_calls: remaining };',
+        '  }',
+        '  return { request: updated_request };',
+        '};',
+      ].join('\n'),
+    }, 'call_api', 'prepare_call'),
+
+    operation('finalize', 'run_script', {
+      code: [
+        'module.exports = async function(data) {',
+        '  return data.$last.response;',
+        '};',
+      ].join('\n'),
+    }, null, null),
+  ],
+};
 
 // ─── All default tools ────────────────────────────────────────────────────────
 
@@ -768,4 +900,7 @@ export const DEFAULT_TOOLS = [
   // call_tool operations
   ADD_CALL_TOOL_OPERATION_TOOL,
   EDIT_CALL_TOOL_OPERATION_TOOL,
+
+  // agentic integrations
+  MESSAGE_V1_RESPONSES_TOOL,
 ];
