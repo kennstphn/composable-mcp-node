@@ -40,16 +40,14 @@ export class ChatApp extends EventTarget {
     // ── Connection ──────────────────────────────────────────────────────────
 
     /**
-     * Open a WebSocket connection authenticated with the given Directus token.
-     * Token is sent as a query parameter because browsers cannot set custom
-     * headers on WebSocket upgrade requests.
-     * @param {string} directusToken
+     * Open a WebSocket connection. Authentication is handled by the browser
+     * automatically via the Directus session cookie set at login.
      */
-    connect(directusToken) {
+    connect() {
         if (this.#ws) this.disconnect();
 
         const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-        const url   = `${proto}://${location.host}/ws/chat?token=${encodeURIComponent(directusToken)}`;
+        const url   = `${proto}://${location.host}/ws/chat`;
 
         this.#ws = new WebSocket(url);
         this.#ws.addEventListener('open',    ()  => this.dispatchEvent(new Event('connected')));

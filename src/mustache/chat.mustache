@@ -400,26 +400,23 @@
 </head>
 <body>
 
-<!-- ══ Auth Screen ══════════════════════════════════════════════════════════ -->
+<!-- ══ Auth Screen (checking / not logged in) ════════════════════════════════ -->
 <div id="auth-screen">
-    <div class="auth-card">
+    <!-- Checking state -->
+    <div id="auth-checking" class="auth-card" style="text-align:center;">
+        <p class="hint" style="margin-bottom:0;">Checking authentication…</p>
+    </div>
+
+    <!-- Not logged in state -->
+    <div id="auth-login" class="auth-card hidden">
         <h1>Composable MCP Chat</h1>
         <p class="hint">
-            Connect using a
-            <a href="{{ $env.DIRECTUS_BASE_URL }}" target="_blank" rel="noopener noreferrer">Directus</a>
-            access token to get started.
+            You are not logged in. Please sign in via Directus to continue.
         </p>
-
-        <label for="directus-token-input">Directus Access Token</label>
-        <input type="password" id="directus-token-input"
-               placeholder="Paste your Directus token"
-               autocomplete="off"
-               onkeydown="if(event.key==='Enter') connectToServer()" />
-
-        <button class="btn-primary btn-full" onclick="connectToServer()" id="connect-btn">
-            Connect
-        </button>
-        <div class="auth-error" id="auth-error"></div>
+        <a class="btn-primary btn-full" href="/admin/login"
+           style="display:flex;text-decoration:none;margin-top:1rem;">
+            Sign in ↗
+        </a>
     </div>
 </div>
 
@@ -538,75 +535,69 @@ let messages = [];
 // Track the agent being edited (for the agent form)
 let editingAgentId = null;
 
-// Directus token lives in sessionStorage so it's cleared on tab close
-const TOKEN_KEY = 'directus_token';
+// DIRECTUS_BASE_URL is baked in at build time by Mustache
+const DIRECTUS_BASE_URL = '{{ $env.DIRECTUS_BASE_URL }}';
 
-// ── Boot ─────────────────────────────────────────────────────────────────────
-(function init() {
-    const saved = sessionStorage.getItem(TOKEN_KEY);
-    if (saved) {
-        document.getElementById('directus-token-input').value = saved;
-        connectToServer();
+// ── Boot — check session via Directus /users/me ───────────────────────────────
+(async function init() {
+    try {
+        const res = await fetch(`${DIRECTUS_BASE_URL}/users/me`, { credentials: 'include' });
+        if (res.ok) {
+            // Authenticated — hide auth screen, show app, connect WS
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('app').classList.remove('hidden');
+            app.connect();
+        } else {
+            showLoginScreen();
+        }
+    } catch {
+        showLoginScreen();
     }
 })();
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
-window.connectToServer = function connectToServer() {
-    const token = document.getElementById('directus-token-input').value.trim();
-    if (!token) { setAuthError('Please enter a token.'); return; }
-
-    setAuthError('');
-    const btn = document.getElementById('connect-btn');
-    btn.disabled = true;
-    btn.textContent = 'Connecting…';
-
-    sessionStorage.setItem(TOKEN_KEY, token);
-    app.connect(token);
-};
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+function showLoginScreen() {
+    document.getElementById('auth-checking').classList.add('hidden');
+    document.getElementById('auth-login').classList.remove('hidden');
+}
 
 app.addEventListener('connected', async () => {
-    document.getElementById('auth-screen').classList.add('hidden');
-    document.getElementById('app').classList.remove('hidden');
     document.getElementById('disconnected-banner').classList.add('hidden');
     setConnDot('online');
     await refreshAgentList();
 });
 
-app.addEventListener('disconnected', (e) => {
+app.addEventListener('disconnected', () => {
     setConnDot('offline');
-    document.getElementById('connect-btn').disabled = false;
-    document.getElementById('connect-btn').textContent = 'Connect';
-    // If the main app is showing, show the banner; otherwise go back to auth
     if (!document.getElementById('app').classList.contains('hidden')) {
         document.getElementById('disconnected-banner').classList.remove('hidden');
-    } else {
-        setAuthError('Connection closed: ' + (e.detail?.reason || 'unknown'));
     }
 });
 
 app.addEventListener('ws-error', () => {
-    document.getElementById('connect-btn').disabled = false;
-    document.getElementById('connect-btn').textContent = 'Connect';
-    setAuthError('Connection failed. Check your token and try again.');
     setConnDot('offline');
+    if (!document.getElementById('app').classList.contains('hidden')) {
+        document.getElementById('disconnected-banner').classList.remove('hidden');
+    }
 });
 
 window.reconnect = async function reconnect() {
-    const token = sessionStorage.getItem(TOKEN_KEY);
-    if (!token) { showAuthScreen(); return; }
-    app.connect(token);
+    document.getElementById('disconnected-banner').classList.add('hidden');
+    try {
+        const res = await fetch(`${DIRECTUS_BASE_URL}/users/me`, { credentials: 'include' });
+        if (res.ok) {
+            app.connect();
+        } else {
+            document.getElementById('app').classList.add('hidden');
+            document.getElementById('auth-screen').classList.remove('hidden');
+            showLoginScreen();
+        }
+    } catch {
+        document.getElementById('app').classList.add('hidden');
+        document.getElementById('auth-screen').classList.remove('hidden');
+        showLoginScreen();
+    }
 };
-
-function showAuthScreen() {
-    document.getElementById('app').classList.add('hidden');
-    document.getElementById('auth-screen').classList.remove('hidden');
-    document.getElementById('connect-btn').disabled = false;
-    document.getElementById('connect-btn').textContent = 'Connect';
-}
-
-function setAuthError(msg) {
-    document.getElementById('auth-error').textContent = msg;
-}
 
 // ── Connection dot ────────────────────────────────────────────────────────────
 function setConnDot(state) {

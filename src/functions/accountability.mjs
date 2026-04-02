@@ -10,13 +10,7 @@ export function get_token(req) {
             if (token) return token;
         }
 
-        if (!req.headers.cookie) {
-            // Browsers cannot set Authorization headers on WebSocket upgrade
-            // requests, so allow a query-parameter fallback for WS connections.
-            const queryToken = req.query?.token;
-            if (queryToken) return String(queryToken).trim();
-            return null;
-        }
+        if (!req.headers.cookie) return null;
 
         const cookies = cookie.parse(req.headers.cookie);
 
