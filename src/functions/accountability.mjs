@@ -2,20 +2,25 @@ import {fetch_cacheable_data} from "./fetch_cachable_data.mjs";
 import cookie from "cookie";
 
 export function get_token(req) {
-    const header = req.headers.authorization;
+    let runner = () => {
+        const header = req.headers.authorization;
 
-    if (header) {
-        const token = header.replace(/^\s*bearer\s+/i, '').trim();
-        if (token) return token;
+        if (header) {
+            const token = header.replace(/^\s*bearer\s+/i, '').trim();
+            if (token) return token;
+        }
+
+        if (!req.headers.cookie) return null;
+
+        const cookies = cookie.parse(req.headers.cookie);
+
+        return cookies.directus_session_token ||
+            cookies.directus_session ||
+            null;
     }
-
-    if (!req.headers.cookie) return null;
-
-    const cookies = cookie.parse(req.headers.cookie);
-
-    return cookies.directus_session_token ||
-        cookies.directus_session ||
-        null;
+    let val = runner();
+    console.log('Extracted token:', val ? `${val.slice(0, 4)}...${val.slice(-4)}` : 'No token found');
+    return val;
 }
 
 
