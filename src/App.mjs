@@ -370,6 +370,7 @@ export class App {
                   }
               });
           }catch (err){
+              console.error(err.stack || err);
               return respond({
                   error: {
                       code: err.code || -32000,
