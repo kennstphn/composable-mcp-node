@@ -15,6 +15,10 @@ const CONVERSATIONS_KEY = 'chat_conversations';
 
 export class ChatStorage {
 
+    constructor(env) {
+        this.env = env;
+    }
+
     // ── Agents ─────────────────────────────────────────────────────────────
 
     async getAgents() {

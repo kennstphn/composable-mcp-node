@@ -528,21 +528,23 @@ import { ChatApp }     from '{{ $env.ROUTES_PREFIX }}/ChatApp.mjs';
 import { ChatStorage } from '{{ $env.ROUTES_PREFIX }}/ChatStorage.mjs';
 
 // ── Globals ─────────────────────────────────────────────────────────────────
-const app = new ChatApp();
+// Mustache bakes in env constants at build time
+const env = {
+    DIRECTUS_BASE_URL: '{{ $env.DIRECTUS_BASE_URL}}',
+    ROUTES_PREFIX: '{{ $env.ROUTES_PREFIX }}'
+}
+const app = new ChatApp(env);
 
 // In-memory message log for the current conversation view
 let messages = [];
 // Track the agent being edited (for the agent form)
 let editingAgentId = null;
 
-// DIRECTUS_BASE_URL is baked in at build time by Mustache
-const DIRECTUS_BASE_URL = '{{ $env.DIRECTUS_BASE_URL }}';
-const ROUTES_PREFIX    = '{{ $env.ROUTES_PREFIX }}';
 
 // ── Boot — check session via Directus /users/me ───────────────────────────────
 (async function init() {
     try {
-        const res = await fetch(`${DIRECTUS_BASE_URL}/users/me`, { credentials: 'include' });
+        const res = await fetch(`${ env.DIRECTUS_BASE_URL}/users/me`, { credentials: 'include' });
         if (res.ok) {
             // Authenticated — hide auth screen, show app, connect WS
             document.getElementById('auth-screen').classList.add('hidden');
@@ -585,7 +587,7 @@ app.addEventListener('ws-error', () => {
 window.reconnect = async function reconnect() {
     document.getElementById('disconnected-banner').classList.add('hidden');
     try {
-        const res = await fetch(`${DIRECTUS_BASE_URL}/users/me`, { credentials: 'include' });
+        const res = await fetch(`${env.DIRECTUS_BASE_URL}/users/me`, { credentials: 'include' });
         if (res.ok) {
             app.connect();
         } else {

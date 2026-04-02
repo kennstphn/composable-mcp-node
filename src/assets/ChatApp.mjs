@@ -32,9 +32,10 @@ export class ChatApp extends EventTarget {
     /** @type {{ id: string, name: string, model: string, endpoint: string, access_token: string }|null} */
     currentAgent = null;
 
-    constructor() {
+    constructor(env) {
         super();
-        this.storage = new ChatStorage();
+        this.env = env;
+        this.storage = new ChatStorage(env);
     }
 
     // ── Connection ──────────────────────────────────────────────────────────
