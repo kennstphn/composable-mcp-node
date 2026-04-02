@@ -524,8 +524,8 @@
 </div><!-- /app -->
 
 <script type="module">
-import { ChatApp }     from '/ChatApp.mjs';
-import { ChatStorage } from '/ChatStorage.mjs';
+import { ChatApp }     from '{{ $env.ROUTES_PREFIX }}/ChatApp.mjs';
+import { ChatStorage } from '{{ $env.ROUTES_PREFIX }}/ChatStorage.mjs';
 
 // ── Globals ─────────────────────────────────────────────────────────────────
 const app = new ChatApp();
@@ -537,6 +537,7 @@ let editingAgentId = null;
 
 // DIRECTUS_BASE_URL is baked in at build time by Mustache
 const DIRECTUS_BASE_URL = '{{ $env.DIRECTUS_BASE_URL }}';
+const ROUTES_PREFIX    = '{{ $env.ROUTES_PREFIX }}';
 
 // ── Boot — check session via Directus /users/me ───────────────────────────────
 (async function init() {
