@@ -349,8 +349,8 @@ export class App {
 
       if(method === 'tools/list'){
           try{
-              let tools = tool_collation
-                  ? await fetchToolsForCollation(this.DIRECTUS_BASE_URL, token, tool_collation)
+              let tools = tool_collation || params.tool_collation
+                  ? await fetchToolsForCollation(this.DIRECTUS_BASE_URL, token, tool_collation || params.tool_collation)
                   : DEFAULT_TOOLS;
 
               return respond({
