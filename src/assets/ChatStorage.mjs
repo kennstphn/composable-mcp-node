@@ -3,7 +3,9 @@
  *
  * Schema
  * ──────
- * agents:        [{ id, name, model, endpoint, access_token, per_million_tokens, created_at }]
+ * agents:        [{ id, name, model, endpoint, access_token,
+ *                   input_rate, output_rate, cached_rate, created_at }]
+ *                  (rates are USD per million tokens; cached_rate is optional)
  * conversations: [{ id, agent_id, title, previous_response_id, created_at }]
  * history:       [{ id, conversation_id, response_id, role, content_snippet, usage, created_at }]
  *
@@ -36,7 +38,8 @@ export class ChatStorage {
     /**
      * Create or update an agent.
      * If `agent.id` is omitted a new UUID is assigned.
-     * @param {{ id?: string, name: string, model: string, endpoint: string, access_token: string, per_million_tokens?: number|null }} agent
+     * @param {{ id?: string, name: string, model: string, endpoint: string, access_token: string,
+     *           input_rate?: number|null, output_rate?: number|null, cached_rate?: number|null }} agent
      * @returns {Promise<object>}
      */
     async saveAgent(agent) {
@@ -45,12 +48,14 @@ export class ChatStorage {
         const existing = agents.find(a => a.id === id);
         const record = {
             id,
-            name:               agent.name,
-            model:              agent.model,
-            endpoint:           agent.endpoint,
-            access_token:       agent.access_token,
-            per_million_tokens: agent.per_million_tokens ?? null,
-            created_at:         existing?.created_at ?? new Date().toISOString(),
+            name:         agent.name,
+            model:        agent.model,
+            endpoint:     agent.endpoint,
+            access_token: agent.access_token,
+            input_rate:   agent.input_rate  ?? null,
+            output_rate:  agent.output_rate ?? null,
+            cached_rate:  agent.cached_rate ?? null,
+            created_at:   existing?.created_at ?? new Date().toISOString(),
         };
         const idx = agents.findIndex(a => a.id === id);
         if (idx >= 0) agents[idx] = record;
@@ -226,18 +231,20 @@ export class ChatStorage {
     /**
      * Sum token usage across all history entries for a conversation.
      * @param {string} conversation_id
-     * @returns {Promise<{ input_tokens: number, output_tokens: number, total_tokens: number }>}
+     * @returns {Promise<{ input_tokens: number, cached_tokens: number, output_tokens: number, total_tokens: number, cost_in_usd_ticks: number }>}
      */
     async getConversationTotalUsage(conversation_id) {
         const history = await this._getHistory();
         return history
             .filter(h => h.conversation_id === conversation_id && h.usage)
             .reduce((acc, h) => {
-                acc.input_tokens  += h.usage.input_tokens  ?? 0;
-                acc.output_tokens += h.usage.output_tokens ?? 0;
-                acc.total_tokens  += h.usage.total_tokens  ??
+                acc.input_tokens      += h.usage.input_tokens  ?? 0;
+                acc.cached_tokens     += h.usage.input_tokens_details?.cached_tokens ?? 0;
+                acc.output_tokens     += h.usage.output_tokens ?? 0;
+                acc.total_tokens      += h.usage.total_tokens  ??
                     ((h.usage.input_tokens ?? 0) + (h.usage.output_tokens ?? 0));
+                acc.cost_in_usd_ticks += h.usage.cost_in_usd_ticks ?? 0;
                 return acc;
-            }, { input_tokens: 0, output_tokens: 0, total_tokens: 0 });
+            }, { input_tokens: 0, cached_tokens: 0, output_tokens: 0, total_tokens: 0, cost_in_usd_ticks: 0 });
     }
 }

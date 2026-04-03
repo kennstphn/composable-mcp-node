@@ -403,12 +403,100 @@
         }
         #disconnected-banner button { flex-shrink: 0; font-size: 0.78rem; }
 
+        /* ── Markdown content in bot bubbles ───────────────────── */
+        .msg.bot .msg-bubble { white-space: normal; }
+        .msg.bot .msg-bubble > :first-child { margin-top: 0; }
+        .msg.bot .msg-bubble > :last-child  { margin-bottom: 0; }
+        .msg.bot .msg-bubble p  { margin: 0.45em 0; }
+        .msg.bot .msg-bubble h1,
+        .msg.bot .msg-bubble h2,
+        .msg.bot .msg-bubble h3,
+        .msg.bot .msg-bubble h4 {
+            margin: 0.6em 0 0.3em;
+            font-size: 1em;
+            font-weight: 700;
+        }
+        .msg.bot .msg-bubble ul,
+        .msg.bot .msg-bubble ol {
+            margin: 0.4em 0;
+            padding-left: 1.4em;
+        }
+        .msg.bot .msg-bubble li { margin: 0.15em 0; }
+        .msg.bot .msg-bubble code {
+            background: rgba(0,0,0,0.3);
+            border-radius: 3px;
+            padding: 0.1em 0.35em;
+            font-size: 0.85em;
+            font-family: ui-monospace, monospace;
+            white-space: pre-wrap;
+        }
+        .msg.bot .msg-bubble pre {
+            background: rgba(0,0,0,0.35);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.65rem 0.85rem;
+            overflow-x: auto;
+            margin: 0.5em 0;
+        }
+        .msg.bot .msg-bubble pre code {
+            background: none;
+            padding: 0;
+            font-size: 0.83em;
+        }
+        .msg.bot .msg-bubble blockquote {
+            border-left: 3px solid var(--accent);
+            margin: 0.4em 0;
+            padding: 0.2em 0.75em;
+            color: var(--subtle);
+        }
+        .msg.bot .msg-bubble hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 0.6em 0;
+        }
+        .msg.bot .msg-bubble a { color: var(--accent); }
+        .msg.bot .msg-bubble table {
+            border-collapse: collapse;
+            margin: 0.5em 0;
+            font-size: 0.85em;
+            max-width: 100%;
+        }
+        .msg.bot .msg-bubble th,
+        .msg.bot .msg-bubble td {
+            border: 1px solid var(--border);
+            padding: 0.3em 0.6em;
+        }
+        .msg.bot .msg-bubble th { background: rgba(0,0,0,0.2); }
+
+        /* ── Mobile sidebar overlay ─────────────────────────────── */
+        #sidebar-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 99;
+        }
+        #menu-btn      { display: none; }
+        #sidebar-close-btn { display: none; }
+
         /* ── Responsive ─────────────────────────────────────────── */
         @media (max-width: 600px) {
             #sidebar { width: 200px; min-width: 180px; }
         }
         @media (max-width: 480px) {
-            #sidebar { display: none; }
+            #sidebar {
+                display: none;
+                position: fixed;
+                top: 0; left: 0; bottom: 0;
+                width: 280px;
+                z-index: 100;
+                box-shadow: 4px 0 24px rgba(0,0,0,0.6);
+            }
+            #sidebar.open { display: flex; }
+            #sidebar-backdrop.open { display: block; }
+            #menu-btn { display: inline-flex; }
+            #sidebar-close-btn { display: inline-flex; }
+            #menu-btn-placeholder { display: inline-flex !important; }
         }
     </style>
 </head>
@@ -434,6 +522,9 @@
     </div>
 </div>
 
+<!-- ══ Mobile sidebar backdrop ═══════════════════════════════════════════════ -->
+<div id="sidebar-backdrop" onclick="closeSidebar()"></div>
+
 <!-- ══ Main App ═════════════════════════════════════════════════════════════ -->
 <div id="app" class="hidden">
 
@@ -447,7 +538,10 @@
     <aside id="sidebar">
         <div class="sidebar-header">
             <span class="logo">Composable MCP</span>
-            <span class="conn-dot" id="conn-dot" title="Connecting…"></span>
+            <span style="display:flex;align-items:center;gap:0.4rem;">
+                <span class="conn-dot" id="conn-dot" title="Connecting…"></span>
+                <button class="btn-ghost btn-sm" id="sidebar-close-btn" onclick="closeSidebar()" title="Close menu">✕</button>
+            </span>
         </div>
 
         <div class="sidebar-scroll">
@@ -473,8 +567,14 @@
                     <label for="af-token">Access Token</label>
                     <input id="af-token" type="password" placeholder="sk-…" autocomplete="off" />
 
-                    <label for="af-per-million">Cost ($/M tokens, optional)</label>
-                    <input id="af-per-million" type="number" placeholder="e.g. 2.50" step="0.01" min="0" />
+                    <label for="af-input-rate">Input rate ($/M tokens, optional)</label>
+                    <input id="af-input-rate" type="number" placeholder="e.g. 3.00" step="0.01" min="0" />
+
+                    <label for="af-output-rate">Output rate ($/M tokens, optional)</label>
+                    <input id="af-output-rate" type="number" placeholder="e.g. 15.00" step="0.01" min="0" />
+
+                    <label for="af-cached-rate">Cached input rate ($/M tokens, optional)</label>
+                    <input id="af-cached-rate" type="number" placeholder="e.g. 1.50" step="0.01" min="0" />
 
                     <div class="form-actions">
                         <button class="btn-secondary btn-sm" onclick="cancelAgentForm()">Cancel</button>
@@ -508,6 +608,8 @@
 
         <!-- Placeholder shown when no conversation is active -->
         <div id="chat-placeholder">
+            <button class="btn-ghost btn-sm" id="menu-btn-placeholder" onclick="toggleSidebar()"
+                    title="Menu" style="display:none;align-self:flex-start;margin-bottom:1rem;">☰ Menu</button>
             <div class="placeholder-icon">💬</div>
             <p>Select an agent in the sidebar and start a new conversation.</p>
         </div>
@@ -516,6 +618,7 @@
         <div id="chat-view" class="hidden">
 
             <div id="chat-header">
+                <button class="btn-ghost btn-sm" id="menu-btn" onclick="toggleSidebar()" title="Menu">☰</button>
                 <div class="agent-avatar" id="agent-avatar">?</div>
                 <div class="header-info">
                     <div class="header-name" id="header-agent-name">—</div>
@@ -544,6 +647,7 @@
 <script type="module">
 import { ChatApp }     from '{{ $env.ROUTES_PREFIX }}/ChatApp.mjs';
 import { ChatStorage } from '{{ $env.ROUTES_PREFIX }}/ChatStorage.mjs';
+import markdownParser  from 'https://cdn.jsdelivr.net/npm/markdown-parser/+esm';
 
 // ── Globals ─────────────────────────────────────────────────────────────────
 // Mustache bakes in env constants at build time
@@ -636,6 +740,17 @@ function setConnDot(state) {
     dot.title = state === 'online' ? 'Connected' : state === 'offline' ? 'Disconnected' : 'Connecting…';
 }
 
+// ── Mobile sidebar toggle ─────────────────────────────────────────────────────
+window.toggleSidebar = function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('sidebar-backdrop').classList.toggle('open');
+};
+
+window.closeSidebar = function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebar-backdrop').classList.remove('open');
+};
+
 // ── Agent form ────────────────────────────────────────────────────────────────
 window.toggleAgentForm = function toggleAgentForm(agentId, event) {
     if (event) event.stopPropagation();
@@ -650,11 +765,13 @@ window.toggleAgentForm = function toggleAgentForm(agentId, event) {
         // Pre-fill for editing
         app.storage.getAgent(agentId).then(agent => {
             if (!agent) return;
-            document.getElementById('af-name').value        = agent.name;
-            document.getElementById('af-model').value       = agent.model;
-            document.getElementById('af-endpoint').value    = agent.endpoint;
-            document.getElementById('af-token').value       = agent.access_token;
-            document.getElementById('af-per-million').value = agent.per_million_tokens ?? '';
+            document.getElementById('af-name').value         = agent.name;
+            document.getElementById('af-model').value        = agent.model;
+            document.getElementById('af-endpoint').value     = agent.endpoint;
+            document.getElementById('af-token').value        = agent.access_token;
+            document.getElementById('af-input-rate').value   = agent.input_rate  ?? '';
+            document.getElementById('af-output-rate').value  = agent.output_rate ?? '';
+            document.getElementById('af-cached-rate').value  = agent.cached_rate ?? '';
             form.classList.remove('hidden');
         });
     } else {
@@ -670,7 +787,7 @@ window.cancelAgentForm = function cancelAgentForm() {
 };
 
 function clearAgentForm() {
-    ['af-name', 'af-model', 'af-endpoint', 'af-token', 'af-per-million'].forEach(id => {
+    ['af-name', 'af-model', 'af-endpoint', 'af-token', 'af-input-rate', 'af-output-rate', 'af-cached-rate'].forEach(id => {
         document.getElementById(id).value = '';
     });
     document.getElementById('af-error').textContent = '';
@@ -681,8 +798,12 @@ window.saveAgent = async function saveAgent() {
     const model        = document.getElementById('af-model').value.trim();
     const endpoint     = document.getElementById('af-endpoint').value.trim();
     const access_token = document.getElementById('af-token').value.trim();
-    const perMStr      = document.getElementById('af-per-million').value.trim();
-    const per_million_tokens = perMStr !== '' ? parseFloat(perMStr) : null;
+    const inputRateStr  = document.getElementById('af-input-rate').value.trim();
+    const outputRateStr = document.getElementById('af-output-rate').value.trim();
+    const cachedRateStr = document.getElementById('af-cached-rate').value.trim();
+    const input_rate  = inputRateStr  !== '' ? parseFloat(inputRateStr)  : null;
+    const output_rate = outputRateStr !== '' ? parseFloat(outputRateStr) : null;
+    const cached_rate = cachedRateStr !== '' ? parseFloat(cachedRateStr) : null;
 
     const errEl = document.getElementById('af-error');
     if (!name || !model || !endpoint) {
@@ -691,7 +812,7 @@ window.saveAgent = async function saveAgent() {
     }
     errEl.textContent = '';
 
-    await app.storage.saveAgent({ id: editingAgentId ?? undefined, name, model, endpoint, access_token, per_million_tokens });
+    await app.storage.saveAgent({ id: editingAgentId ?? undefined, name, model, endpoint, access_token, input_rate, output_rate, cached_rate });
     cancelAgentForm();
     await refreshAgentList();
 };
@@ -738,6 +859,7 @@ window.selectAgent = async function selectAgent(agentId) {
     await refreshConversationList();
     document.getElementById('new-conv-btn').disabled = false;
     clearChatView();
+    closeSidebar();
 };
 
 // ── Conversation list ─────────────────────────────────────────────────────────
@@ -765,6 +887,7 @@ async function refreshConversationList() {
             <span class="item-icon">💬</span>
             <span class="item-label">${esc(label)}</span>
             <span class="item-actions">
+                <button class="btn-ghost btn-sm" onclick="renameConversation('${esc(c.id)}', event)" title="Rename">✎</button>
                 <button class="btn-danger btn-sm" onclick="deleteConversation('${esc(c.id)}', event)" title="Delete">✕</button>
             </span>
         </div>
@@ -800,6 +923,7 @@ window.openConversation = async function openConversation(id) {
     openChatView();
     await refreshConversationList();
     await refreshAgentList();
+    closeSidebar();
 };
 
 window.deleteConversation = async function deleteConversation(id, event) {
@@ -810,6 +934,21 @@ window.deleteConversation = async function deleteConversation(id, event) {
         app.currentConversation = null;
     }
     await app.storage.deleteConversation(id);
+    await refreshConversationList();
+};
+
+window.renameConversation = async function renameConversation(id, event) {
+    event.stopPropagation();
+    const conv = await app.storage.getConversation(id);
+    if (!conv) return;
+    const current = conv.title ?? '';
+    const newTitle = prompt('Rename conversation:', current);
+    if (newTitle === null) return; // cancelled
+    const trimmed = newTitle.trim();
+    await app.storage.updateConversationTitle(id, trimmed || null);
+    if (app.currentConversation?.id === id) {
+        app.currentConversation = await app.storage.getConversation(id);
+    }
     await refreshConversationList();
 };
 
@@ -858,14 +997,35 @@ function addMessage(role, text, extra) {
 }
 
 function buildMsgHTML(msg) {
-    const cls = msg.role === 'user' ? 'user' : msg.role === 'error' ? 'error' : 'bot';
-    const label = msg.role === 'user' ? 'You' : msg.role === 'error' ? 'Error' : (app.currentAgent?.name ?? 'Assistant');
+    const cls   = msg.role === 'user' ? 'user' : msg.role === 'error' ? 'error' : 'bot';
+    const label = msg.role === 'user' ? 'You'  : msg.role === 'error' ? 'Error' : (app.currentAgent?.name ?? 'Assistant');
+    let content;
+    if (msg.thinking) {
+        content = '<span class="dots"></span>';
+    } else if (msg.role === 'bot') {
+        content = renderMarkdown(msg.text);
+    } else {
+        content = esc(msg.text);
+    }
     return `
         <div class="msg ${cls} ${msg.thinking ? 'msg-thinking' : ''}">
             <div class="msg-role">${esc(label)}</div>
-            <div class="msg-bubble">${msg.thinking ? '<span class="dots"></span>' : esc(msg.text)}</div>
+            <div class="msg-bubble">${content}</div>
         </div>
     `;
+}
+
+/** Render markdown to HTML for bot messages. Falls back to escaped text on error. */
+function renderMarkdown(text) {
+    try {
+        if (typeof markdownParser === 'function') {
+            return markdownParser(text);
+        }
+        if (typeof markdownParser?.parse === 'function') {
+            return markdownParser.parse(text);
+        }
+    } catch (_) {}
+    return `<span>${esc(text)}</span>`;
 }
 
 // ── Send message ──────────────────────────────────────────────────────────────
@@ -1028,19 +1188,35 @@ async function updateCostDisplay() {
 
     const conv  = app.currentConversation;
     const agent = app.currentAgent;
-    if (!conv || !(agent?.per_million_tokens > 0)) {
-        el.textContent = '';
-        return;
-    }
+    if (!conv || !agent) { el.textContent = ''; return; }
 
     const usage = await app.storage.getConversationTotalUsage(conv.id);
-    if (!usage.total_tokens) {
-        el.textContent = '';
-        return;
+    if (!usage.total_tokens && !usage.cost_in_usd_ticks) { el.textContent = ''; return; }
+
+    let costStr = '';
+    const hasRates = ((agent.input_rate ?? 0) > 0) || ((agent.output_rate ?? 0) > 0) || ((agent.cached_rate ?? 0) > 0);
+    if (hasRates) {
+        const cachedTokens = usage.cached_tokens ?? 0;
+        const nonCached = Math.max(0, usage.input_tokens - cachedTokens);
+        // cached_rate falls back to input_rate when not separately configured
+        const cachedRate = agent.cached_rate ?? agent.input_rate ?? 0;
+        const cost = (
+            nonCached    * (agent.input_rate  ?? 0) +
+            cachedTokens * cachedRate +
+            usage.output_tokens * (agent.output_rate ?? 0)
+        ) / 1_000_000;
+        costStr = `$${cost.toFixed(4)}`;
     }
 
-    const cost = (usage.total_tokens * agent.per_million_tokens) / 1_000_000;
-    el.textContent = `$${cost.toFixed(4)} · ${usage.total_tokens.toLocaleString()} tokens`;
+    const parts = [];
+    if (costStr) parts.push(costStr);
+    if (usage.total_tokens) {
+        const detail = usage.cached_tokens
+            ? `${usage.total_tokens.toLocaleString()} tokens (${usage.cached_tokens.toLocaleString()} cached)`
+            : `${usage.total_tokens.toLocaleString()} tokens`;
+        parts.push(detail);
+    }
+    el.textContent = parts.join(' · ');
 }
 
 // ── Auto-select most recent conversation on connect ───────────────────────────
