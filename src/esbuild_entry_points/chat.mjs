@@ -2,7 +2,7 @@ import {ChatApp} from './modules/ChatApp.mjs';
 import markdownParser from 'https://cdn.jsdelivr.net/npm/markdown-parser/+esm';
 
 // ── Globals ─────────────────────────────────────────────────────────────────
-const env = window.env || {
+const env = window.$env || {
     DIRECTUS_BASE_URL: '',
     ROUTES_PREFIX: '',
 };
