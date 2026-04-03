@@ -361,14 +361,15 @@ function buildMsgHTML(msg) {
     const cls = msg.role === 'user' ? 'user' : msg.role === 'error' ? 'error' : 'bot';
     const label = msg.role === 'user' ? 'You' : msg.role === 'error' ? 'Error' : (app.currentAgent?.name ?? 'Assistant');
     let content;
+    let container = document.createElement('div');
     if (msg.thinking) {
         content = '<span class="dots"></span>';
     } else if (msg.role === 'bot') {
-        let container = document.createElement('div');
         renderMarkdown(msg.text, container);
         content = container.innerHTML;
     } else {
-        content = esc(msg.text);
+        renderMarkdown(msg.text,container);
+        content = container.innerHTML;
     }
     return `
         <div class="msg ${cls} ${msg.thinking ? 'msg-thinking' : ''}">
