@@ -2,6 +2,7 @@ import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { CallTool } from './CallTool.mjs';
 import { clearFetchCache } from '../functions/fetch_cachable_data.mjs';
+import { run_operations, get_fresh_vars } from '../functions/run_operations.mjs';
 
 // Helper to build a mock fetch response
 function makeResponse(status, body, contentType = 'application/json') {
@@ -37,110 +38,115 @@ function simpleTool(result) {
 }
 
 // Base context that satisfies CallTool's runtime requirements
-const BASE_ENV = {
+const BASE_CONTEXT = {
   $env: {
     DIRECTUS_BASE_URL: 'https://directus.example.com',
-    DIRECTUS_TOKEN: 'test-token',
   },
   $accountability: { id: 'user-123' },
+  $vars: { isError: false },
+  $last: null,
 };
+
+const BEARER_TOKEN = 'test-token';
+
+// Create a CallTool instance with injected runtime dependencies
+function makeOp(config) {
+  const op = new CallTool(config);
+  op.run_operations = run_operations;
+  op.get_fresh_vars = get_fresh_vars;
+  return op;
+}
 
 describe('CallTool', () => {
   // Clear the fetch cache before each test to prevent cache interference
   beforeEach(() => clearFetchCache());
 
-  it('throws when tool_collation is missing from config', async () => {
-    const op = new CallTool({ tool_slug: 'foo' });
-    await assert.rejects(() => op.run(BASE_ENV), /tool_collation.*required/i);
+  it('throws when run_operations is not injected', async () => {
+    const op = new CallTool({ tool_collation: 'col', tool_name: 'foo' });
+    await assert.rejects(() => op.run(BASE_CONTEXT, BEARER_TOKEN), /run_operations.*not injected/i);
   });
 
-  it('throws when tool_slug is missing from config', async () => {
-    const op = new CallTool({ tool_collation: 'my-collection' });
-    await assert.rejects(() => op.run(BASE_ENV), /tool_slug.*required/i);
-  });
-
-  it('throws when DIRECTUS_TOKEN is absent from context.$env', async () => {
-    const op = new CallTool({ tool_collation: 'col', tool_slug: 'tool' });
-    await assert.rejects(
-      () => op.run({ $env: { DIRECTUS_BASE_URL: 'https://example.com' } }),
-      /bearer token/i
-    );
+  it('throws when get_fresh_vars is not injected', async () => {
+    const op = new CallTool({ tool_collation: 'col', tool_name: 'foo' });
+    op.run_operations = run_operations;
+    await assert.rejects(() => op.run(BASE_CONTEXT, BEARER_TOKEN), /get_fresh_vars.*not injected/i);
   });
 
   it('throws when DIRECTUS_BASE_URL is absent from context.$env', async () => {
-    const op = new CallTool({ tool_collation: 'col', tool_slug: 'tool' });
+    const op = makeOp({ tool_collation: 'col', tool_name: 'tool' });
     await assert.rejects(
-      () => op.run({ $env: {} }, 'some-token'),
+      () => op.run({ $env: {} }, BEARER_TOKEN),
       /DIRECTUS_BASE_URL/
     );
   });
 
   it('throws when the target tool is not found in the collation', async () => {
-    const op = new CallTool({ tool_collation: 'col', tool_slug: 'missing-tool' });
+    const op = makeOp({ tool_collation: 'col', tool_name: 'missing-tool' });
 
     const fetchMock = mock.fn(async () => makeResponse(200, { data: [] }));
     const origFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
     try {
-      await assert.rejects(() => op.run(BASE_ENV), /not found/i);
+      await assert.rejects(() => op.run(BASE_CONTEXT, BEARER_TOKEN), /not found/i);
     } finally {
       globalThis.fetch = origFetch;
     }
   });
 
   it('throws on 401 from Directus', async () => {
-    const op = new CallTool({ tool_collation: 'col', tool_slug: 'tool' });
+    const op = makeOp({ tool_collation: 'col', tool_name: 'tool' });
 
     const fetchMock = mock.fn(async () => makeResponse(401, { errors: [] }));
     const origFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
     try {
-      await assert.rejects(() => op.run(BASE_ENV), /authorization failed/i);
+      await assert.rejects(() => op.run(BASE_CONTEXT, BEARER_TOKEN), /authorization failed/i);
     } finally {
       globalThis.fetch = origFetch;
     }
   });
 
   it('throws on non-2xx response from Directus', async () => {
-    const op = new CallTool({ tool_collation: 'col', tool_slug: 'tool' });
+    const op = makeOp({ tool_collation: 'col', tool_name: 'tool' });
 
     const fetchMock = mock.fn(async () => makeResponse(500, {}));
     const origFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
     try {
-      await assert.rejects(() => op.run(BASE_ENV), /Directus returned 500/i);
+      await assert.rejects(() => op.run(BASE_CONTEXT, BEARER_TOKEN), /Directus returned 500/i);
     } finally {
       globalThis.fetch = origFetch;
     }
   });
 
   it('calls the target tool and returns its $last value', async () => {
-    const op = new CallTool({ tool_collation: 'col', tool_slug: 'target-tool' });
+    const op = makeOp({ tool_collation: 'col', tool_name: 'target-tool' });
 
     const fetchMock = mock.fn(async () => makeToolsResponse(simpleTool(42)));
     const origFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
     try {
-      const result = await op.run(BASE_ENV);
-      assert.equal(result, 42);
+      const result = await op.run(BASE_CONTEXT, BEARER_TOKEN);
+      assert.equal(result.$last, 42);
+      assert.equal(result.$vars.isError, false);
     } finally {
       globalThis.fetch = origFetch;
     }
   });
 
-  it('sends the Authorization header to Directus using the context token', async () => {
-    const op = new CallTool({ tool_collation: 'col', tool_slug: 'target-tool' });
+  it('sends the Authorization header to Directus using the explicitly passed bearer token', async () => {
+    const op = makeOp({ tool_collation: 'col', tool_name: 'target-tool' });
 
     const fetchMock = mock.fn(async () => makeToolsResponse(simpleTool('ok')));
     const origFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
     try {
-      await op.run(BASE_ENV);
+      await op.run(BASE_CONTEXT, BEARER_TOKEN);
       const [, options] = fetchMock.mock.calls[0].arguments;
       assert.equal(options.headers['Authorization'], 'Bearer test-token');
     } finally {
@@ -149,14 +155,14 @@ describe('CallTool', () => {
   });
 
   it('fetches from the correct Directus URL with tool_collation filter', async () => {
-    const op = new CallTool({ tool_collation: 'my-collection', tool_slug: 'target-tool' });
+    const op = makeOp({ tool_collation: 'my-collection', tool_name: 'target-tool' });
 
     const fetchMock = mock.fn(async () => makeToolsResponse(simpleTool('ok')));
     const origFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
     try {
-      await op.run(BASE_ENV);
+      await op.run(BASE_CONTEXT, BEARER_TOKEN);
       const [url] = fetchMock.mock.calls[0].arguments;
       assert.ok(url.includes('/items/tools'));
       assert.ok(url.includes('my-collection'));
@@ -165,7 +171,7 @@ describe('CallTool', () => {
     }
   });
 
-  it('interpolates context values into the input before passing to the sub-tool', async () => {
+  it('interpolates context values into tool_arguments before passing to the sub-tool', async () => {
     const tool = {
       name: 'echo-tool',
       slug: 'echo-tool',
@@ -183,10 +189,10 @@ describe('CallTool', () => {
       start_slug: 'echo',
     };
 
-    const op = new CallTool({
+    const op = makeOp({
       tool_collation: 'col',
-      tool_slug: 'echo-tool',
-      input: { greeting: 'Hello {{name}}' },
+      tool_name: 'echo-tool',
+      tool_arguments: { greeting: 'Hello {{name}}' },
     });
 
     const fetchMock = mock.fn(async () => makeToolsResponse(tool));
@@ -194,16 +200,14 @@ describe('CallTool', () => {
     globalThis.fetch = fetchMock;
 
     try {
-      const result = await op.run({ ...BASE_ENV, name: 'World' });
-      assert.deepEqual(result, { greeting: 'Hello World' });
+      const result = await op.run({ ...BASE_CONTEXT, name: 'World' }, BEARER_TOKEN);
+      assert.deepEqual(result.$last, { greeting: 'Hello World' });
     } finally {
       globalThis.fetch = origFetch;
     }
   });
 
   it('passes $accountability from the calling context to the sub-tool flow', async () => {
-    // The sub-tool's script exposes $accountability via $trigger so we can assert on it
-    const accountabilityCapture = { value: null };
     const tool = {
       name: 'auth-tool',
       slug: 'auth-tool',
@@ -221,7 +225,7 @@ describe('CallTool', () => {
       start_slug: 'capture',
     };
 
-    const op = new CallTool({ tool_collation: 'col', tool_slug: 'auth-tool' });
+    const op = makeOp({ tool_collation: 'col', tool_name: 'auth-tool' });
 
     const fetchMock = mock.fn(async () => makeToolsResponse(tool));
     const origFetch = globalThis.fetch;
@@ -231,10 +235,10 @@ describe('CallTool', () => {
 
     try {
       const result = await op.run({
-        ...BASE_ENV,
+        ...BASE_CONTEXT,
         $accountability: customAccountability,
-      });
-      assert.deepEqual(result, customAccountability);
+      }, BEARER_TOKEN);
+      assert.deepEqual(result.$last, customAccountability);
     } finally {
       globalThis.fetch = origFetch;
     }
@@ -249,7 +253,7 @@ describe('CallTool', () => {
           slug: 'read-env',
           type: 'run_script',
           config: {
-            code: 'module.exports = async function(data) { return data.$env.DIRECTUS_TOKEN; }',
+            code: 'module.exports = async function(data) { return data.$env.CUSTOM_KEY; }',
           },
           resolve: null,
           reject: null,
@@ -258,23 +262,26 @@ describe('CallTool', () => {
       start_slug: 'read-env',
     };
 
-    const op = new CallTool({ tool_collation: 'col', tool_slug: 'env-tool' });
+    const op = makeOp({ tool_collation: 'col', tool_name: 'env-tool' });
 
     const fetchMock = mock.fn(async () => makeToolsResponse(tool));
     const origFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
     try {
-      const result = await op.run(BASE_ENV);
-      assert.equal(result, 'test-token');
+      const result = await op.run({
+        ...BASE_CONTEXT,
+        $env: { ...BASE_CONTEXT.$env, CUSTOM_KEY: 'custom-value' },
+      }, BEARER_TOKEN);
+      assert.equal(result.$last, 'custom-value');
     } finally {
       globalThis.fetch = origFetch;
     }
   });
 
   it('parses config from a JSON string', async () => {
-    const op = new CallTool(
-      JSON.stringify({ tool_collation: 'col', tool_slug: 'target-tool' })
+    const op = makeOp(
+      JSON.stringify({ tool_collation: 'col', tool_name: 'target-tool' })
     );
 
     const fetchMock = mock.fn(async () => makeToolsResponse(simpleTool('from-string-config')));
@@ -282,8 +289,8 @@ describe('CallTool', () => {
     globalThis.fetch = fetchMock;
 
     try {
-      const result = await op.run(BASE_ENV);
-      assert.equal(result, 'from-string-config');
+      const result = await op.run(BASE_CONTEXT, BEARER_TOKEN);
+      assert.equal(result.$last, 'from-string-config');
     } finally {
       globalThis.fetch = origFetch;
     }
@@ -311,14 +318,14 @@ describe('CallTool', () => {
       start_slug: 'fail',
     };
 
-    const op = new CallTool({ tool_collation: 'col', tool_slug: 'failing-tool' });
+    const op = makeOp({ tool_collation: 'col', tool_name: 'failing-tool' });
 
     const fetchMock = mock.fn(async () => makeToolsResponse(tool));
     const origFetch = globalThis.fetch;
     globalThis.fetch = fetchMock;
 
     try {
-      await assert.rejects(() => op.run(BASE_ENV), /sub-tool boom/);
+      await assert.rejects(() => op.run(BASE_CONTEXT, BEARER_TOKEN), /sub-tool boom/);
     } finally {
       globalThis.fetch = origFetch;
     }

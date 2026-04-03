@@ -65,6 +65,7 @@ export async function run_operations(operations, start_slug, initialContext = {}
   // Main execution (iterative — safer than recursion for deep chains/loops)
   async function executeChain(startSlug) {
     let currentSlug = startSlug;
+    let last_is_error = false; // tracks whether the final executed operation ended in an error
 
     while (currentSlug) {
       const op = opMap[currentSlug];
@@ -95,10 +96,17 @@ export async function run_operations(operations, start_slug, initialContext = {}
         result = err;
       }
 
+      last_is_error = is_error;
       context[currentSlug] = result;
       context.$last = result;
       currentSlug = is_error ? (op.reject || null) : (op.resolve || null);
 
+    }
+
+    // If the chain ended on an unhandled error (no reject path taken), propagate the
+    // error state so that callers (e.g. CallTool) can detect it via $vars.isError.
+    if (last_is_error && !context.$vars.isError) {
+      context.$vars.isError = true;
     }
 
     return context;

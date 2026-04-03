@@ -392,13 +392,21 @@ export class App {
           op.run_operations = run_operations;
           op.get_fresh_vars = get_fresh_vars;
 
+          // For default (filesystem) tools, inject the server's DIRECTUS_BASE_URL into
+          // the trigger arguments so that fetch_request operations can reference it via
+          // {{$trigger.DIRECTUS_BASE_URL}} without depending on $env directly.
+          let toolArguments = params.arguments;
+          if (!tool_collation) {
+              toolArguments = { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL, ...toolArguments };
+          }
+
           try{
               // Collate the tool name with its collation if provided, using a double underscore as separator (e.g. "myCollation__myTool").
 
               let result = await op.run({
                   $env: this.cloned_environment, // protect the env from being overridden
                   $accountability: $accountability,
-                  $trigger:{name, arguments: params.arguments} // the CallTool operation will use these to resolve the tool and its arguments when it runs.
+                  $trigger:{name, arguments: toolArguments} // the CallTool operation will use these to resolve the tool and its arguments when it runs.
                   // this keeps the interpolation and validation logic centralized in the CallTool operation, instead of having to duplicate it here in the handler.
                   // it also protects against double interpolation if we were to resolve the tool here and then pass it to the CallTool operation,
                   // which would also try to resolve it again when it runs.

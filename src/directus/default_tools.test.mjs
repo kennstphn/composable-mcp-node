@@ -492,7 +492,7 @@ describe('DELETE_COMPOSED_TOOL_TOOL', () => {
     const checkOp = DELETE_COMPOSED_TOOL_TOOL.operations[0];
     await assert.rejects(
       () => runEmbeddedScript(checkOp, { $trigger: { tool_id: 5, confirm: false } }),
-      /Script failed/,
+      /Error from user function/,
     );
   });
 
@@ -500,7 +500,7 @@ describe('DELETE_COMPOSED_TOOL_TOOL', () => {
     const checkOp = DELETE_COMPOSED_TOOL_TOOL.operations[0];
     await assert.rejects(
       () => runEmbeddedScript(checkOp, { $trigger: { tool_id: 5 } }),
-      /Script failed/,
+      /Error from user function/,
     );
   });
 

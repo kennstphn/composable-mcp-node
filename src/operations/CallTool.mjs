@@ -6,13 +6,23 @@ import {validate_arguments} from "../functions/validate_arguments.mjs";
 /**
  * CallTool operation — calls another Directus-backed tool from within a flow.
  *
- * Config schema:
+ * Config schema (two equivalent forms are accepted):
+ *
+ * Standard form — used when configuring a call_tool operation inside a composed tool:
  * {
- *   "tool_collation": string  (required) — the tool collation to look up the target tool in,
- *   "tool_name":      string  (required) — name of the target tool to call,
- *   "iteration_mode": string  (optional) — if tool_arguments is an array, determines whether to call the sub-tool in 'parallel' or 'serial' for each item in the array; defaults to 'serial'
- *   "tool_arguments":          object-array|object  (optional) — arguments to pass to the target tool; supports
- *                             Mustache interpolation against the calling flow's context
+ *   "tool_collation": string        (optional) — the tool collation to look up the target tool in;
+ *                                               omit to use the built-in default tools
+ *   "tool_name":      string        (required) — name of the target tool to call
+ *   "tool_arguments": object|array  (optional) — arguments to pass to the target tool; supports
+ *                                               Mustache interpolation against the calling flow's context
+ *   "iteration_mode": string        (optional) — if tool_arguments is an array, 'parallel' or 'serial'; defaults to 'serial'
+ * }
+ *
+ * Invocation form — used by the HTTP/WebSocket handler in App.mjs:
+ * {
+ *   "invocation":     { name: string, arguments: object }  — combined collation__toolname and arguments;
+ *                                                            supports Mustache interpolation
+ *   "iteration_mode": string  (optional)
  * }
  *
  * Runtime requirements:
@@ -50,11 +60,9 @@ export class CallTool {
 
     let { invocation, iteration_mode } = this.config;
 
-
-    if (! iteration_mode){
+    if (!iteration_mode) {
         iteration_mode = 'serial';
     }
-
 
     const baseUrl = context?.$env?.DIRECTUS_BASE_URL;
 
@@ -62,19 +70,29 @@ export class CallTool {
       throw new Error("CallTool: DIRECTUS_BASE_URL is not available in context.$env");
     }
 
-    // Interpolate config values against the current context, to allow dynamic resolution of the target tool and
-    // arguments based on the calling flow's state
-    invocation = interpolateValue(invocation, context);
-    iteration_mode = interpolateValue(iteration_mode, context);
-
-
-
+    // Support standard config format: { tool_collation, tool_name, tool_arguments }.
+    // Interpolate each field separately, then combine into the invocation object.
+    if (invocation === undefined) {
+        const collation  = interpolateValue(this.config.tool_collation || null, context);
+        const tool_name  = interpolateValue(this.config.tool_name || null, context);
+        const args       = interpolateValue(this.config.tool_arguments || {}, context);
+        invocation = {
+            name:      collation ? `${collation}__${tool_name}` : tool_name,
+            arguments: args,
+        };
+        iteration_mode = interpolateValue(iteration_mode, context);
+    } else {
+        // Invocation form: interpolate config values against the current context, to allow dynamic
+        // resolution of the target tool and arguments based on the calling flow's state.
+        invocation     = interpolateValue(invocation, context);
+        iteration_mode = interpolateValue(iteration_mode, context);
+    }
 
     try{
         if ( Array.isArray(invocation) ) {
-          return await this.invoke_tool_list(invocation, bearerToken, iteration_mode);
+          return await this.invoke_tool_list(invocation, bearerToken, iteration_mode, context);
         }
-        return await this.invoke_tool(invocation, bearerToken,context);
+        return await this.invoke_tool(invocation, bearerToken, context);
     } catch (err){
         if(err instanceof CallToolError){
             throw err;
@@ -140,7 +158,7 @@ export class CallTool {
 
     }else{
         let tools = await fetchToolsForCollation(context.$env.DIRECTUS_BASE_URL, bearerToken, tool_collation);
-        let tool = tools.find(t => t.name === tool_name);
+        tool = tools.find(t => t.name === tool_name);
 
         if ( !tool) throw new CallToolError(`CallTool: tool with name ${tool_name} not found in collation ${tool_collation}`);
 
@@ -160,7 +178,7 @@ export class CallTool {
     // Execute the sub-tool's flow,
     // - Pass bearerToken through explicitly so that injection without exposure still works
     // run_operations(operations, start_slug, initialContext = {}, bearerToken = null)
-    let subContext = await this.run_operations(tool.operations, tool.start_slug, this.make_context(args), bearerToken);
+    let subContext = await this.run_operations(tool.operations, tool.start_slug, this.make_context(args, context), bearerToken);
 
     // make sure that we trigger the reject path if the sub-tool ended in an error state,
     // so that the parent tool can handle it if needed
@@ -171,12 +189,12 @@ export class CallTool {
     return this.trim_output(subContext)
   }
 
-    async invoke_tool_list(invocation_list, bearerToken, iteration_mode) {
+    async invoke_tool_list(invocation_list, bearerToken, iteration_mode, context) {
         let results = [];
 
         if (iteration_mode === 'parallel') {
             const promises = invocation_list.map(invocation =>
-                this.invoke_tool(invocation, bearerToken, this.make_context)
+                this.invoke_tool(invocation, bearerToken, context)
             );
 
             const settled = await Promise.allSettled(promises);
@@ -193,7 +211,7 @@ export class CallTool {
 
         } else {
             for (let invocation of invocation_list) {
-                const result = await this.invoke_tool(invocation, bearerToken, this.make_context);
+                const result = await this.invoke_tool(invocation, bearerToken, context);
                 if(result.$vars.isError){
                     throw this.trim_output(result)
                 }
@@ -208,7 +226,20 @@ export class CallTool {
 
 class CallToolError extends Error {
     constructor(message) {
-        super(message);
+        // Extract a human-readable string for Error.message when message is an
+        // object (e.g. a trim_output result with $last containing the actual error).
+        let msg;
+        if (message instanceof Error) {
+            msg = message.message;
+        } else if (message && typeof message === 'object') {
+            const last = message.$last;
+            msg = last instanceof Error ? last.message
+                : typeof last === 'string' ? last
+                : JSON.stringify(last);
+        } else {
+            msg = String(message);
+        }
+        super(msg);
         this.$last = message;
         this.$vars = {isError: true};
     }
