@@ -363,7 +363,9 @@ function buildMsgHTML(msg) {
     if (msg.thinking) {
         content = '<span class="dots"></span>';
     } else if (msg.role === 'bot') {
-        content = renderMarkdown(msg.text);
+        let container = document.createElement('div');
+        renderMarkdown(msg.text, container);
+        content = container.innerHTML;
     } else {
         content = esc(msg.text);
     }
