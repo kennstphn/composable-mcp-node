@@ -1024,7 +1024,10 @@ function renderMarkdown(text) {
         if (typeof markdownParser?.parse === 'function') {
             return markdownParser.parse(text);
         }
-    } catch (_) {}
+        console.log('Markdown parser not found or has unexpected format. Rendering as plain text.');
+    } catch (_) {
+        console.error(_);
+    }
     return `<span>${esc(text)}</span>`;
 }
 
