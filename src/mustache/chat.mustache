@@ -276,6 +276,11 @@
             font-size: 0.75rem;
             color: var(--muted);
         }
+        #chat-header .header-cost {
+            font-size: 0.72rem;
+            color: var(--muted);
+            font-variant-numeric: tabular-nums;
+        }
         #new-chat-btn { flex-shrink: 0; }
 
         /* Active conversation view */
@@ -311,6 +316,15 @@
         }
         #messages::-webkit-scrollbar { width: 4px; }
         #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        #messages.loading-history::before {
+            content: 'Loading older messages…';
+            display: block;
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--muted);
+            padding: 0.5rem 0;
+            align-self: center;
+        }
 
         .msg {
             display: flex;
@@ -459,6 +473,9 @@
                     <label for="af-token">Access Token</label>
                     <input id="af-token" type="password" placeholder="sk-…" autocomplete="off" />
 
+                    <label for="af-per-million">Cost ($/M tokens, optional)</label>
+                    <input id="af-per-million" type="number" placeholder="e.g. 2.50" step="0.01" min="0" />
+
                     <div class="form-actions">
                         <button class="btn-secondary btn-sm" onclick="cancelAgentForm()">Cancel</button>
                         <button class="btn-primary btn-sm" onclick="saveAgent()">Save</button>
@@ -503,6 +520,7 @@
                 <div class="header-info">
                     <div class="header-name" id="header-agent-name">—</div>
                     <div class="header-model" id="header-agent-model"></div>
+                    <div class="header-cost" id="header-cost"></div>
                 </div>
                 <button class="btn-secondary btn-sm" id="new-chat-btn" onclick="newConversation()">＋ New chat</button>
             </div>
@@ -539,6 +557,10 @@ const app = new ChatApp(env);
 let messages = [];
 // Track the agent being edited (for the agent form)
 let editingAgentId = null;
+// Conversation history pagination state
+let historyOldestTimestamp = null;
+let historyHasMore         = false;
+let historyLoading         = false;
 
 
 // ── Boot — check session via Directus /users/me ───────────────────────────────
@@ -568,6 +590,7 @@ app.addEventListener('connected', async () => {
     document.getElementById('disconnected-banner').classList.add('hidden');
     setConnDot('online');
     await refreshAgentList();
+    await autoSelectMostRecent();
 });
 
 app.addEventListener('disconnected', () => {
@@ -582,6 +605,10 @@ app.addEventListener('ws-error', () => {
     if (!document.getElementById('app').classList.contains('hidden')) {
         document.getElementById('disconnected-banner').classList.remove('hidden');
     }
+});
+
+app.addEventListener('conversation-renamed', async () => {
+    await refreshConversationList();
 });
 
 window.reconnect = async function reconnect() {
@@ -623,10 +650,11 @@ window.toggleAgentForm = function toggleAgentForm(agentId, event) {
         // Pre-fill for editing
         app.storage.getAgent(agentId).then(agent => {
             if (!agent) return;
-            document.getElementById('af-name').value     = agent.name;
-            document.getElementById('af-model').value    = agent.model;
-            document.getElementById('af-endpoint').value = agent.endpoint;
-            document.getElementById('af-token').value    = agent.access_token;
+            document.getElementById('af-name').value        = agent.name;
+            document.getElementById('af-model').value       = agent.model;
+            document.getElementById('af-endpoint').value    = agent.endpoint;
+            document.getElementById('af-token').value       = agent.access_token;
+            document.getElementById('af-per-million').value = agent.per_million_tokens ?? '';
             form.classList.remove('hidden');
         });
     } else {
@@ -642,7 +670,7 @@ window.cancelAgentForm = function cancelAgentForm() {
 };
 
 function clearAgentForm() {
-    ['af-name', 'af-model', 'af-endpoint', 'af-token'].forEach(id => {
+    ['af-name', 'af-model', 'af-endpoint', 'af-token', 'af-per-million'].forEach(id => {
         document.getElementById(id).value = '';
     });
     document.getElementById('af-error').textContent = '';
@@ -653,6 +681,8 @@ window.saveAgent = async function saveAgent() {
     const model        = document.getElementById('af-model').value.trim();
     const endpoint     = document.getElementById('af-endpoint').value.trim();
     const access_token = document.getElementById('af-token').value.trim();
+    const perMStr      = document.getElementById('af-per-million').value.trim();
+    const per_million_tokens = perMStr !== '' ? parseFloat(perMStr) : null;
 
     const errEl = document.getElementById('af-error');
     if (!name || !model || !endpoint) {
@@ -661,7 +691,7 @@ window.saveAgent = async function saveAgent() {
     }
     errEl.textContent = '';
 
-    await app.storage.saveAgent({ id: editingAgentId ?? undefined, name, model, endpoint, access_token });
+    await app.storage.saveAgent({ id: editingAgentId ?? undefined, name, model, endpoint, access_token, per_million_tokens });
     cancelAgentForm();
     await refreshAgentList();
 };
@@ -719,6 +749,7 @@ async function refreshConversationList() {
         return;
     }
 
+    // getConversationsForAgent already returns most-recent-first
     const convs = await app.storage.getConversationsForAgent(app.currentAgent.id);
 
     if (!convs.length) {
@@ -726,22 +757,35 @@ async function refreshConversationList() {
         return;
     }
 
-    list.innerHTML = convs.map((c, i) => `
+    list.innerHTML = convs.map(c => {
+        const label = c.title ?? formatConvDate(c.created_at);
+        return `
         <div class="list-item ${app.currentConversation?.id === c.id ? 'active' : ''}"
              onclick="openConversation('${esc(c.id)}')">
             <span class="item-icon">💬</span>
-            <span class="item-label">Conversation ${convs.length - i}</span>
+            <span class="item-label">${esc(label)}</span>
             <span class="item-actions">
                 <button class="btn-danger btn-sm" onclick="deleteConversation('${esc(c.id)}', event)" title="Delete">✕</button>
             </span>
         </div>
-    `).join('');
+    `;
+    }).join('');
+}
+
+function formatConvDate(isoStr) {
+    if (!isoStr) return 'New conversation';
+    const d = new Date(isoStr);
+    if (isNaN(d)) return 'New conversation';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 window.newConversation = async function newConversation() {
     if (!app.currentAgent) return;
     await app.startConversation(app.currentAgent.id);
     messages = [];
+    historyOldestTimestamp = null;
+    historyHasMore         = false;
+    historyLoading         = false;
     openChatView();
     await refreshConversationList();
 };
@@ -749,6 +793,10 @@ window.newConversation = async function newConversation() {
 window.openConversation = async function openConversation(id) {
     await app.selectConversation(id);
     messages = [];
+    historyOldestTimestamp = null;
+    historyHasMore         = false;
+    historyLoading         = false;
+    await loadInitialHistory();
     openChatView();
     await refreshConversationList();
     await refreshAgentList();
@@ -777,6 +825,7 @@ function openChatView() {
     document.getElementById('header-agent-model').textContent = agent?.model ?? '';
 
     renderMessages();
+    updateCostDisplay();
     document.getElementById('message-input').focus();
 }
 
@@ -785,6 +834,10 @@ function clearChatView() {
     const view = document.getElementById('chat-view');
     view.classList.add('hidden');
     messages = [];
+    historyOldestTimestamp = null;
+    historyHasMore         = false;
+    historyLoading         = false;
+    document.getElementById('header-cost').textContent = '';
 }
 
 function renderMessages() {
@@ -850,6 +903,7 @@ window.sendMessage = async function sendMessage() {
         // Extract text output from V1 response format
         const replyText = extractResponseText(response);
         addMessage('bot', replyText);
+        await updateCostDisplay();
 
     } catch (err) {
         removeLastThinking();
@@ -905,6 +959,119 @@ window.autoGrow = function autoGrow(el) {
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 160) + 'px';
 };
+
+// ── History pagination ────────────────────────────────────────────────────────
+
+async function loadInitialHistory() {
+    if (!app.currentConversation) return;
+    const batch = await app.storage.getHistoryBatch(app.currentConversation.id, { limit: 20 });
+    historyHasMore         = batch.length === 20;
+    historyOldestTimestamp = batch.length > 0 ? batch[0].created_at : null;
+
+    messages = batch.map(h => ({
+        role: h.role === 'assistant' ? 'bot' : h.role,
+        text: h.content_snippet ?? '',
+    }));
+    renderMessages();
+
+    const container = document.getElementById('messages');
+    container.scrollTop = container.scrollHeight;
+}
+
+async function loadMoreHistory() {
+    if (!historyHasMore || historyLoading || !historyOldestTimestamp || !app.currentConversation) return;
+    historyLoading = true;
+    const container = document.getElementById('messages');
+    container.classList.add('loading-history');
+    const prevScrollHeight = container.scrollHeight;
+
+    try {
+        const batch = await app.storage.getHistoryBatch(app.currentConversation.id, {
+            before: historyOldestTimestamp,
+            limit:  20,
+        });
+
+        if (batch.length === 0) {
+            historyHasMore = false;
+            return;
+        }
+
+        historyHasMore         = batch.length === 20;
+        historyOldestTimestamp = batch[0].created_at;
+
+        const prepend = batch.map(h => ({
+            role: h.role === 'assistant' ? 'bot' : h.role,
+            text: h.content_snippet ?? '',
+        }));
+        messages = [...prepend, ...messages];
+        renderMessages();
+
+        // Restore scroll position so the user stays at the same spot
+        container.scrollTop = container.scrollHeight - prevScrollHeight;
+    } finally {
+        historyLoading = false;
+        container.classList.remove('loading-history');
+    }
+}
+
+// Attach scroll listener once; fires only when scrolled near the top
+document.getElementById('messages').addEventListener('scroll', function () {
+    if (this.scrollTop < 80 && historyHasMore && !historyLoading) {
+        loadMoreHistory();
+    }
+});
+
+// ── Cost display ──────────────────────────────────────────────────────────────
+async function updateCostDisplay() {
+    const el = document.getElementById('header-cost');
+    if (!el) return;
+
+    const conv  = app.currentConversation;
+    const agent = app.currentAgent;
+    if (!conv || !(agent?.per_million_tokens > 0)) {
+        el.textContent = '';
+        return;
+    }
+
+    const usage = await app.storage.getConversationTotalUsage(conv.id);
+    if (!usage.total_tokens) {
+        el.textContent = '';
+        return;
+    }
+
+    const cost = (usage.total_tokens * agent.per_million_tokens) / 1_000_000;
+    el.textContent = `$${cost.toFixed(4)} · ${usage.total_tokens.toLocaleString()} tokens`;
+}
+
+// ── Auto-select most recent conversation on connect ───────────────────────────
+async function autoSelectMostRecent() {
+    const convs = await app.storage.getConversations();
+    if (!convs.length) return;
+
+    const sorted = [...convs].sort((a, b) => {
+        const da = a.created_at ? new Date(a.created_at) : new Date(0);
+        const db = b.created_at ? new Date(b.created_at) : new Date(0);
+        return db - da;
+    });
+
+    const mostRecent = sorted[0];
+    if (!mostRecent) return;
+
+    // Make sure the agent exists before proceeding
+    const agent = await app.storage.getAgent(mostRecent.agent_id);
+    if (!agent) return;
+
+    await app.selectAgent(mostRecent.agent_id);
+    await refreshAgentList();
+    await refreshConversationList();
+    document.getElementById('new-conv-btn').disabled = false;
+
+    await app.selectConversation(mostRecent.id);
+    await loadInitialHistory();
+    openChatView();
+    await refreshConversationList();
+    await updateCostDisplay();
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function esc(str) {

@@ -5,9 +5,9 @@
  * message handling, and coordinates with ChatStorage for persistence.
  *
  * LLM invocation is performed server-side through the "chat" tool
- * collation.  Parameters follow the V1 responses API standard; only
- * the previous_response_id is persisted locally – not the full
- * conversation history.
+ * collation.  Parameters follow the V1 responses API standard; the
+ * previous_response_id is persisted locally together with per-message
+ * history entries that enable conversation replay and cost tracking.
  */
 
 import { ChatStorage } from './ChatStorage.mjs';
@@ -125,6 +125,31 @@ export class ChatApp extends EventTarget {
     // ── Chat ────────────────────────────────────────────────────────────────
 
     /**
+     * Extract plain text from a V1 responses API response object.
+     * @param {object|null} response
+     * @returns {string}
+     */
+    #extractText(response) {
+        if (!response) return '';
+        if (Array.isArray(response.output)) {
+            const parts = [];
+            for (const block of response.output) {
+                if (block.type === 'message' && Array.isArray(block.content)) {
+                    for (const c of block.content) {
+                        if ((c.type === 'output_text' || c.type === 'text') && c.text) parts.push(c.text);
+                    }
+                } else if (block.type === 'text' && block.text) {
+                    parts.push(block.text);
+                }
+            }
+            if (parts.length) return parts.join('\n');
+        }
+        if (typeof response.output_text === 'string') return response.output_text;
+        if (typeof response.text        === 'string') return response.text;
+        return '';
+    }
+
+    /**
      * Send a user message in the current conversation.
      *
      * Invokes the "chat" tool via JSON-RPC tools/call.  The arguments
@@ -134,7 +159,8 @@ export class ChatApp extends EventTarget {
      *
      * After a successful response the returned `id` is persisted as the new
      * previous_response_id – enabling stateless-on-client conversation
-     * continuation on the next call.
+     * continuation on the next call.  Both the user turn and assistant turn
+     * are saved to conversation history for later replay and cost tracking.
      *
      * @param {string} text  The user's message text.
      * @returns {Promise<object>}  The V1 response object returned by the LLM.
@@ -145,6 +171,16 @@ export class ChatApp extends EventTarget {
 
         const { model, endpoint, access_token } = this.currentAgent;
         const { previous_response_id }          = this.currentConversation;
+        const isFirstMessage                    = !previous_response_id;
+
+        // Save the user turn before sending (so it appears in history even if the request fails)
+        await this.storage.saveHistoryEntry({
+            conversation_id: this.currentConversation.id,
+            response_id:     null,
+            role:            'user',
+            content_snippet: text.slice(0, 1000),
+            usage:           null,
+        });
 
         const args = {
             request: {
@@ -176,7 +212,67 @@ export class ChatApp extends EventTarget {
             );
         }
 
+        // Save the assistant turn with token usage
+        const assistantText = this.#extractText(response);
+        await this.storage.saveHistoryEntry({
+            conversation_id: this.currentConversation.id,
+            response_id:     newResponseId,
+            role:            'assistant',
+            content_snippet: assistantText.slice(0, 1000),
+            usage:           response?.usage ?? null,
+        });
+
+        // Auto-name the conversation after the first exchange.
+        // Failures are silently swallowed – naming is best-effort and must never
+        // interrupt the user's chat experience.
+        if (isFirstMessage && !this.currentConversation.title) {
+            this.#generateConversationName(text, assistantText).catch(() => {});
+        }
+
         return response;
+    }
+
+    /**
+     * Generate a short title for the conversation from the first exchange.
+     * This is a "transient" request – it does NOT update previous_response_id.
+     * @param {string} userText
+     * @param {string} assistantText
+     */
+    async #generateConversationName(userText, assistantText) {
+        if (!this.currentConversation || !this.currentAgent) return;
+        const convId = this.currentConversation.id;
+
+        const { model, endpoint, access_token } = this.currentAgent;
+        const namingInput =
+            `Generate a short title (3–5 words, no quotes, no trailing punctuation) for this conversation:\n\n` +
+            `User: ${userText.slice(0, 300)}\nAssistant: ${assistantText.slice(0, 300)}`;
+
+        const args = {
+            request: { model, input: namingInput },
+            endpoint,
+            token: access_token,
+        };
+
+        const result = await this.rpc('tools/call', { name: 'message_v1_responses', arguments: args, tool_collation: null });
+
+        let response;
+        try {
+            const raw = result?.content?.[0]?.text;
+            response  = raw ? JSON.parse(raw) : result;
+        } catch {
+            response = result;
+        }
+
+        const title = this.#extractText(response)?.trim().replace(/^["']|["']$/g, '').slice(0, 80);
+        if (!title) return;
+
+        const updated = await this.storage.updateConversationTitle(convId, title);
+        if (updated) {
+            if (this.currentConversation?.id === convId) {
+                this.currentConversation = updated;
+            }
+            this.dispatchEvent(new CustomEvent('conversation-renamed', { detail: { id: convId, title } }));
+        }
     }
 
     // ── Agent & conversation helpers ────────────────────────────────────────
