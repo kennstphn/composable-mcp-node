@@ -1,6 +1,6 @@
 import {ChatApp} from './modules/ChatApp.mjs';
 import {renderMarkdown} from "./chat-markdown.mjs";
-import './chat.css';
+import './modules/chat.css';
 
 // ── Globals ─────────────────────────────────────────────────────────────────
 const env = window.$env || {
