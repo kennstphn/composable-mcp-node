@@ -319,12 +319,16 @@ export class App {
      * @returns {Promise<*&{jsonrpc: string, id}>}
      */
   handle_jsonrpc_2_request = async (method, params, id, tool_collation, token, $accountability) => {
+      const effectiveCollation = params.tool_collation !== undefined
+          ? params.tool_collation
+          : tool_collation;
+
       // if id is missing, we can treat it as a notification and drop early without processing, since we won't be
       // sending a response back anyway. This is per the JSON-RPC 2.0 spec.
       if(id === undefined || id === null){
 
           // fire-and-forget notification handling (e.g. for client events that don't require a response, like "notifications/initialized")
-          this.handle_jsonrpc_notification(method,params, tool_collation, token)
+          this.handle_jsonrpc_notification(method,params, effectiveCollation, token)
           return; // no response for notifications
       }
 
@@ -355,8 +359,8 @@ export class App {
 
       if(method === 'tools/list'){
           try{
-              let tools = tool_collation || params.tool_collation
-                  ? await fetchToolsForCollation(this.DIRECTUS_BASE_URL, token, params.tool_collation || tool_collation )
+              let tools = effectiveCollation
+                  ? await fetchToolsForCollation(this.DIRECTUS_BASE_URL, token, effectiveCollation )
                   : DEFAULT_TOOLS;
 
               return respond({
@@ -382,7 +386,7 @@ export class App {
       }
 
       if(method === 'tools/call'){
-          let name = tool_collation ? `${tool_collation}__${params.name}` : params.name;
+          let name = effectiveCollation ? `${effectiveCollation}__${params.name}` : params.name;
           let op = new CallTool({
               invocation:{
                   name: '{{$trigger.name}}',
@@ -392,13 +396,7 @@ export class App {
           op.run_operations = run_operations;
           op.get_fresh_vars = get_fresh_vars;
 
-          // For default (filesystem) tools, inject the server's DIRECTUS_BASE_URL into
-          // the trigger arguments so that fetch_request operations can reference it via
-          // {{$trigger.DIRECTUS_BASE_URL}} without depending on $env directly.
           let toolArguments = params.arguments;
-          if (!tool_collation) {
-              toolArguments = { DIRECTUS_BASE_URL: this.DIRECTUS_BASE_URL, ...toolArguments };
-          }
 
           try{
               // Collate the tool name with its collation if provided, using a double underscore as separator (e.g. "myCollation__myTool").
