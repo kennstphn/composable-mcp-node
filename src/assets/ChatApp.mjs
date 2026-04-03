@@ -154,7 +154,7 @@ export class ChatApp extends EventTarget {
             ...(previous_response_id ? { previous_response_id } : {}),
         };
 
-        const result = await this.rpc('tools/call', { name: 'chat', arguments: args });
+        const result = await this.rpc('tools/call', { name: 'message_v1_responses', arguments: args, tool_collation:null });
 
         // The tool wraps its output in a content array of {type,text} items
         let response;
