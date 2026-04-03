@@ -1,5 +1,5 @@
 import {ChatApp} from './modules/ChatApp.mjs';
-import markdownParser from 'https://cdn.jsdelivr.net/npm/markdown-parser/+esm';
+import {renderMarkdown} from "./chat-markdown.mjs";
 
 // ── Globals ─────────────────────────────────────────────────────────────────
 const env = window.$env || {
@@ -373,22 +373,6 @@ function buildMsgHTML(msg) {
             <div class="msg-bubble">${content}</div>
         </div>
     `;
-}
-
-/** Render markdown to HTML for bot messages. Falls back to escaped text on error. */
-function renderMarkdown(text) {
-    try {
-        if (typeof markdownParser === 'function') {
-            return markdownParser(text);
-        }
-        if (typeof markdownParser?.parse === 'function') {
-            return markdownParser.parse(text);
-        }
-        console.log('Markdown parser not found or has unexpected format. Rendering as plain text.');
-    } catch (_) {
-        console.error(_);
-    }
-    return `<span>${esc(text)}</span>`;
 }
 
 // ── Send message ──────────────────────────────────────────────────────────────
