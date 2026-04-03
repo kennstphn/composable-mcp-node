@@ -1194,14 +1194,16 @@ async function updateCostDisplay() {
     if (!usage.total_tokens && !usage.cost_in_usd_ticks) { el.textContent = ''; return; }
 
     let costStr = '';
-    const hasRates = (agent.input_rate > 0) || (agent.output_rate > 0);
+    const hasRates = ((agent.input_rate ?? 0) > 0) || ((agent.output_rate ?? 0) > 0) || ((agent.cached_rate ?? 0) > 0);
     if (hasRates) {
-        const nonCached = Math.max(0, usage.input_tokens - usage.cached_tokens);
+        const cachedTokens = usage.cached_tokens ?? 0;
+        const nonCached = Math.max(0, usage.input_tokens - cachedTokens);
+        // cached_rate falls back to input_rate when not separately configured
         const cachedRate = agent.cached_rate ?? agent.input_rate ?? 0;
         const cost = (
-            nonCached             * (agent.input_rate  ?? 0) +
-            usage.cached_tokens   * cachedRate +
-            usage.output_tokens   * (agent.output_rate ?? 0)
+            nonCached    * (agent.input_rate  ?? 0) +
+            cachedTokens * cachedRate +
+            usage.output_tokens * (agent.output_rate ?? 0)
         ) / 1_000_000;
         costStr = `$${cost.toFixed(4)}`;
     }
