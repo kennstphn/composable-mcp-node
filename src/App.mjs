@@ -9,7 +9,6 @@ import {fetchToolsForCollation} from "./functions/get_tools_with_operations.mjs"
 const ajv = new Ajv({ allErrors: true, coerceTypes: false });
 import {MESSAGE_SCHEMA} from "./JsonRpc_2_0.mjs";
 import {join} from 'path';
-import {build_dist} from "./functions/build_dist.mjs";
 import {CallTool} from "./operations/CallTool.mjs";
 import {get_accountability, get_token} from "./functions/accountability.mjs";
 
@@ -31,8 +30,6 @@ export class App {
     }
     this.env = env;
     this.env.toString = () =>  JSON.stringify(this.env);
-
-    build_dist({$env: this.env})
 
     this.app = express();
     expressWs(this.app);

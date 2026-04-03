@@ -28,5 +28,6 @@ jobs:
             git pull origin main --ff-only
             # Add your build/restart commands here, e.g.:
             npm install
+            npm run build
             npm run restart
             echo "Deployment completed at $(date)"
