@@ -316,7 +316,7 @@ export class App {
      * @returns {Promise<*&{jsonrpc: string, id}>}
      */
   handle_jsonrpc_2_request = async (method, params, id, tool_collation, token, $accountability) => {
-      const effectiveCollation = params.tool_collation !== undefined
+      const effectiveCollation = params?.tool_collation !== undefined
           ? params.tool_collation
           : tool_collation;
 
