@@ -128,9 +128,9 @@ export class ChatApp extends EventTarget {
      * Send a user message in the current conversation.
      *
      * Invokes the "chat" tool via JSON-RPC tools/call.  The arguments
-     * match the V1 responses API: model, input, optional previous_response_id,
-     * plus endpoint and access_token so the server can route to the correct
-     * LLM provider.
+     * follow the message_v1_responses schema: a `request` object containing
+     * model, input, and optional previous_response_id; plus `endpoint` and
+     * `token` so the server can route to the correct LLM provider.
      *
      * After a successful response the returned `id` is persisted as the new
      * previous_response_id – enabling stateless-on-client conversation
@@ -147,11 +147,13 @@ export class ChatApp extends EventTarget {
         const { previous_response_id }          = this.currentConversation;
 
         const args = {
-            model,
-            input:    text,
+            request: {
+                model,
+                input: text,
+                ...(previous_response_id ? { previous_response_id } : {}),
+            },
             endpoint,
-            access_token,
-            ...(previous_response_id ? { previous_response_id } : {}),
+            token: access_token,
         };
 
         const result = await this.rpc('tools/call', { name: 'message_v1_responses', arguments: args, tool_collation:null });
