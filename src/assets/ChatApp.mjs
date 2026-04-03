@@ -222,7 +222,9 @@ export class ChatApp extends EventTarget {
             usage:           response?.usage ?? null,
         });
 
-        // Auto-name the conversation after the first exchange
+        // Auto-name the conversation after the first exchange.
+        // Failures are silently swallowed – naming is best-effort and must never
+        // interrupt the user's chat experience.
         if (isFirstMessage && !this.currentConversation.title) {
             this.#generateConversationName(text, assistantText).catch(() => {});
         }
